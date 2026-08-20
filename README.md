@@ -2,6 +2,18 @@
 
 Dashboard verifikasi model **INanWP** terhadap observasi satelit **GSMAP NRT** menggunakan framework [METplus](https://dtcenter.org/software-tools/metplus).
 
+## Deploy Production
+
+**Panduan lengkap step-by-step deploy di server litbangweb dan webpsi:**
+
+→ **[docs/DEPLOY.md](docs/DEPLOY.md)**
+
+Ringkasan:
+- **litbangweb** — jalankan METplus, export output ke `/mnt/wdd1/www/htdocs/wrf/metplus/dashboard/`
+- **webpsi** — sync data ke `/var/www/verifikasi-inanwp/data/metplus/`, deploy app di port 3013/8013 via PM2 + Apache
+
+File referensi deploy: `deploy/ecosystem.config.cjs`, `deploy/apache-verifikasi-inanwp.conf`, `deploy/.env.example`
+
 ## Arsitektur
 
 ```
