@@ -21,6 +21,7 @@ from backend.config import (
     MAX_LEAD_TIME_HOURS,
     METHODS,
     METPLUS_DATA_DIR,
+    METPLUS_METHODS,
     MODEL_VAR_MAP,
     MODELS,
     SEED_DEMO_DATA,
@@ -75,9 +76,25 @@ class ObsFetchRequest(BaseModel):
 
 def _method(raw: str | None) -> str:
     m = (raw or DEFAULT_METHOD or "harp").strip().lower()
+    # aliases
+    aliases = {
+        "metplus_grid": "metplus",
+        "grid": "metplus",
+        "gridstat": "metplus",
+        "point": "metplus_point",
+        "pointstat": "metplus_point",
+        "fss": "metplus_fss",
+        "mode": "metplus_mode",
+        "object": "metplus_mode",
+    }
+    m = aliases.get(m, m)
     if m not in METHODS:
         raise HTTPException(status_code=400, detail=f"method harus salah satu dari {METHODS}")
     return m
+
+
+def _is_metplus(m: str) -> bool:
+    return m in METPLUS_METHODS
 
 
 @app.on_event("startup")
@@ -163,21 +180,40 @@ def health() -> dict[str, Any]:
 
 @app.get("/api/methods")
 def list_methods() -> dict[str, Any]:
+    catalog = {
+        "harp": {
+            "id": "harp",
+            "label": "HARP — titik stasiun",
+            "domain": "point",
+            "description": "Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik",
+        },
+        "metplus": {
+            "id": "metplus",
+            "label": "METplus — spasial / grid",
+            "domain": "spatial",
+            "description": "GridStat InaNWP vs GSMAP — skor H+3…H+72 & peta pasangan grid",
+        },
+        "metplus_point": {
+            "id": "metplus_point",
+            "label": "METplus — PointStat (semua stasiun ID)",
+            "domain": "point",
+            "description": "PointStat InaNWP vs GSMAP di seluruh stasiun BMKG (param precip 3 jam, keluarga HARP rainfall)",
+        },
+        "metplus_fss": {
+            "id": "metplus_fss",
+            "label": "METplus — FSS (neighborhood)",
+            "domain": "spatial",
+            "description": "Fractions Skill Score / neighborhood verification (GridStat NBR*)",
+        },
+        "metplus_mode": {
+            "id": "metplus_mode",
+            "label": "METplus — MODE (object-based)",
+            "domain": "object",
+            "description": "Method for Object-Based Diagnostic Evaluation — objek hujan vs GSMAP",
+        },
+    }
     return {
-        "methods": [
-            {
-                "id": "harp",
-                "label": "HARP (point / stasiun)",
-                "domain": "point",
-                "description": "Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik",
-            },
-            {
-                "id": "metplus",
-                "label": "METplus (spasial / grid)",
-                "domain": "spatial",
-                "description": "GridStat NWP vs GSMAP — skor lead time & peta pasangan grid",
-            },
-        ],
+        "methods": [catalog[m] for m in METHODS if m in catalog],
         "default": DEFAULT_METHOD,
     }
 
@@ -252,8 +288,8 @@ def list_cycles(
     method: str | None = Query(None),
 ) -> list[dict]:
     m = _method(method)
-    if m == "metplus":
-        return ms.cycles(model)
+    if _is_metplus(m):
+        return ms.cycles(model, method=m)
     if USE_F32_STORE:
         rows = hs.cycles()
         return [r for r in rows if not model or r["model"] == model]
@@ -295,12 +331,12 @@ def model_sources(method: str | None = Query(None)) -> dict[str, Any]:
     from backend.config import DUMMY_MODELS, USE_DUMMY_MODELS
 
     m = _method(method)
-    if m == "metplus":
+    if _is_metplus(m):
         return {
-            "sources": ms.available_models(),
+            "sources": ms.available_models(method=m),
             "dummy_models": [],
             "use_dummy_models": False,
-            "method": "metplus",
+            "method": m,
         }
 
     if USE_F32_STORE:
@@ -324,14 +360,14 @@ def model_sources(method: str | None = Query(None)) -> dict[str, Any]:
 @app.get("/api/parameters")
 def list_parameters(method: str | None = Query(None)) -> dict[str, Any]:
     m = _method(method)
-    if m == "metplus":
+    if _is_metplus(m):
         return {
             "verify_parameters": {ms.METPLUS_PARAM: ms.METPLUS_PARAM_META},
             "available_by_model": {mod: [ms.METPLUS_PARAM] for mod in MODELS},
             "unavailable_notes": {},
             "models": MODELS,
             "max_lead_time_hours": 72,
-            "method": "metplus",
+            "method": m,
         }
     available = {
         mod: sorted(MODEL_VAR_MAP.get(mod, {}).keys())
@@ -448,15 +484,18 @@ def verification_scores(
 ) -> dict[str, Any]:
     model_list = [m.strip() for m in models.split(",") if m.strip()]
     m = _method(method)
-    if m == "metplus":
+    if _is_metplus(m):
         df = ms.scores_frame(
             models=model_list, parameter=parameter or ms.METPLUS_PARAM,
-            init_time=init_time, lead_time=lead_time,
+            init_time=init_time, lead_time=lead_time, method=m,
         )
         meta = ms.METPLUS_PARAM_META
         if df.empty:
-            raise HTTPException(status_code=404, detail="Belum ada skor METplus — jalankan pipeline DPU / sync series.json")
-        return {"parameter": ms.METPLUS_PARAM, "meta": meta, "scores": _scores_to_list(df), "method": "metplus"}
+            raise HTTPException(
+                status_code=404,
+                detail=f"Belum ada skor {m} — jalankan pipeline DPU / sync series.json",
+            )
+        return {"parameter": ms.METPLUS_PARAM, "meta": meta, "scores": _scores_to_list(df), "method": m}
 
     if USE_F32_STORE:
         df = hs.scores_frame(models=model_list, parameter=parameter, init_time=init_time, lead_time=lead_time)
@@ -481,10 +520,10 @@ def verification_ranking(
 ) -> dict[str, Any]:
     model_list = [m.strip() for m in models.split(",") if m.strip()]
     m = _method(method)
-    if m == "metplus":
-        payload = ms.ranking_payload(model_list, init_time=init_time, score=score)
+    if _is_metplus(m):
+        payload = ms.ranking_payload(model_list, init_time=init_time, score=score, method=m)
         if not payload:
-            raise HTTPException(status_code=404, detail="Belum ada data ranking METplus")
+            raise HTTPException(status_code=404, detail=f"Belum ada data ranking {m}")
         return payload
     if USE_F32_STORE:
         payload = hs.ranking_payload(model_list, init_time=init_time, score=score)

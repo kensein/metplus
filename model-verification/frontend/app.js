@@ -54,6 +54,10 @@ function selectedMethod() {
   return (el && el.value) || currentMethod || 'harp';
 }
 
+function isMetplusMethod(m = selectedMethod()) {
+  return String(m || '').startsWith('metplus');
+}
+
 function methodQ(extra = '') {
   const q = `method=${encodeURIComponent(selectedMethod())}`;
   return extra ? `${q}&${extra.replace(/^\?|&/, '')}` : q;
@@ -171,12 +175,18 @@ function applyMethodUi() {
   currentMethod = m;
   const hint = document.getElementById('methodHint');
   const lt = document.getElementById('leadTime');
-  if (m === 'metplus') {
-    if (hint) hint.textContent = 'METplus: skor grid vs GSMAP (H+3…H+72), peta spasial.';
+  const hints = {
+    metplus: 'METplus GridStat: skor grid vs GSMAP (H+3…H+72), peta spasial.',
+    metplus_point: 'METplus PointStat: InaNWP vs GSMAP di seluruh stasiun BMKG (precip 3 jam).',
+    metplus_fss: 'METplus FSS: Fractions Skill Score (neighborhood widths 1…11).',
+    metplus_mode: 'METplus MODE: object-based verification objek hujan vs GSMAP.',
+    harp: 'HARP: verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik.',
+  };
+  if (hint) hint.textContent = hints[m] || hints.harp;
+  if (isMetplusMethod(m)) {
     maxLeadTime = 72;
     if (lt) { lt.max = 72; lt.step = 3; if (+lt.value > 72) lt.value = 12; }
   } else {
-    if (hint) hint.textContent = 'HARP: verifikasi titik stasiun vs observasi BMKG.';
     maxLeadTime = 168;
     if (lt) { lt.max = 168; lt.step = 3; }
   }
@@ -191,6 +201,7 @@ const SCORE_METRICS = {
   correlation: { label: 'Correlation (r)', lowerBetter: false },
   csi: { label: 'CSI', lowerBetter: false },
   ets: { label: 'ETS', lowerBetter: false },
+  fss: { label: 'FSS', lowerBetter: false },
 };
 
 function selectedScoreMetric() {
@@ -268,7 +279,7 @@ async function loadModelSources() {
       badge.textContent = src;
       badge.className = `badge ${src}`;
       if (src === 'none') cb.checked = false;
-      if (src === 'real' && selectedMethod() === 'metplus' && cb.value === 'InaNWP') cb.checked = true;
+      if (src === 'real' && isMetplusMethod() && cb.value === 'InaNWP') cb.checked = true;
     });
     refreshParameterOptions();
   } catch (e) { console.warn('model sources', e); }
@@ -281,18 +292,42 @@ function modelBadge(model) {
 
 async function loadMethodology() {
   const el = document.getElementById('harpMethodology');
-  if (selectedMethod() === 'metplus') {
-    el.innerHTML = `
-      <h2>METplus — verifikasi spasial</h2>
-      <p>GridStat InaNWP vs GSMAP NRT. Precip total = <code>RAINNC+RAINC+RAINSH</code>, akumulasi 3 jam, lead H+3…H+72.</p>
+  const m = selectedMethod();
+  if (isMetplusMethod(m)) {
+    const docs = {
+      metplus: {
+        title: 'METplus — GridStat (spasial)',
+        body: `<p>GridStat InaNWP vs GSMAP NRT. Precip total = <code>RAINNC+RAINC+RAINSH</code>, akumulasi 3 jam, lead H+3…H+72.</p>
       <ol>
-        <li>Prepare precip 3h dari wrfout (per init / per lead)</li>
+        <li>Prepare precip 3h dari wrfout</li>
         <li>Sum GSMAP jam-jaman → 3h, regrid ke grid model</li>
         <li>grid_stat → CNT/CTS + pairs.nc + skor .txt</li>
-        <li>export_series.py → series.json untuk grafik & ranking</li>
-      </ol>
-      <p>Compute di <strong>DPU</strong> (tanpa Docker/litbangweb). Webpsi hanya menampilkan artifact.</p>
-    `;
+        <li>export_series.py → series.json</li>
+      </ol>`,
+      },
+      metplus_point: {
+        title: 'METplus — PointStat (seluruh stasiun Indonesia)',
+        body: `<p>PointStat membandingkan field grid InaNWP dengan observasi titik di <strong>seluruh stasiun BMKG</strong> (katalog WMO).</p>
+      <p>Parameter v1: curah hujan 3 jam (keluarga HARP rainfall / <code>precip_3h</code>), observasi titik dari GSMAP yang di-sample di lat/lon stasiun.</p>
+      <ol>
+        <li>ascii2nc stasiun → NetCDF point obs</li>
+        <li>point_stat InaNWP precip vs titik stasiun</li>
+        <li>export → series_point.json</li>
+      </ol>`,
+      },
+      metplus_fss: {
+        title: 'METplus — FSS (neighborhood / Fractions Skill Score)',
+        body: `<p>GridStat dengan <code>nbrhd</code> (widths 1…11) menghasilkan NBRCTS/NBRCNT termasuk <strong>FSS</strong>.</p>
+      <p>Cocok untuk verifikasi hujan konvektif di mana posisi objek boleh bergeser dalam radius tertentu.</p>`,
+      },
+      metplus_mode: {
+        title: 'METplus — MODE (object-based)',
+        body: `<p>MODE mengidentifikasi objek hujan di forecast & observasi (GSMAP), lalu mencocokkan pasangan objek (centroid, area, intensitas).</p>
+      <p>Metrik utama: total interest, jumlah objek fcst/obs/matched.</p>`,
+      },
+    };
+    const d = docs[m] || docs.metplus;
+    el.innerHTML = `<h2>${d.title}</h2>${d.body}<p>Compute di <strong>DPU</strong>. Webpsi hanya menampilkan artifact.</p>`;
     return;
   }
   try {
@@ -442,7 +477,7 @@ async function reloadParameters() {
   paramsMeta = data.verify_parameters || {};
   paramsAvailableByModel = data.available_by_model || {};
   paramsUnavailableNotes = data.unavailable_notes || {};
-  maxLeadTime = data.max_lead_time_hours || (selectedMethod() === 'metplus' ? 72 : 168);
+  maxLeadTime = data.max_lead_time_hours || (isMetplusMethod() ? 72 : 168);
   const ltSlider = document.getElementById('leadTime');
   if (ltSlider) {
     ltSlider.max = maxLeadTime;
@@ -470,17 +505,23 @@ function bindEvents() {
   });
 
   document.getElementById('methodSelect')?.addEventListener('change', async () => {
+    applyMethodUi();
+    const metricEl = document.getElementById('scoreMetric');
+    if (metricEl) {
+      if (selectedMethod() === 'metplus_fss') metricEl.value = 'fss';
+      else if (selectedMethod() === 'metplus_mode') metricEl.value = 'ets';
+      else if (isMetplusMethod() && metricEl.value === 'fss') metricEl.value = 'rmse';
+    }
     mapBulkCache.key = '';
     stationDetailCache.key = '';
-    applyMethodUi();
     try {
-      await reloadParameters();
       await loadModelSources();
+      await refreshParameterOptions();
       await loadCycles();
+      await refreshAll();
     } catch (e) {
       console.warn('method switch', e);
     }
-    await refreshAll();
   });
 
   ['parameter', 'initCycle'].forEach(id => document.getElementById(id).addEventListener('change', () => {
@@ -605,11 +646,11 @@ async function loadOverview() {
   }
 
   rankingChart?.setBar({
-    title: `Ranking ${selectedMethod().toUpperCase()} — Mean RMSE (semakin kecil semakin baik)`,
-    yLabel: 'Mean RMSE',
+    title: `Ranking ${selectedMethod().toUpperCase()} — Mean ${rows[0]?.metric?.toUpperCase?.() || 'RMSE'}`,
+    yLabel: rows[0]?.metric || 'Mean score',
     labels: rows.map(r => r.model),
     values: rows.map(r => {
-      const v = r.mean_rmse ?? r.mean_score ?? 0;
+      const v = r.mean_score ?? r.mean_rmse ?? 0;
       return (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
     }),
     colors: ['#00529B', '#64748b', '#94a3b8', '#cbd5e1'],
@@ -632,8 +673,10 @@ async function loadOverview() {
 async function loadSpatial() {
   const gal = document.getElementById('spatialGallery');
   if (!gal) return;
-  if (selectedMethod() !== 'metplus') {
-    gal.innerHTML = '<em>Pilih metode <strong>METplus</strong> untuk melihat peta spasial grid.</em>';
+  if (!isMetplusMethod() || selectedMethod() === 'metplus_point') {
+    gal.innerHTML = selectedMethod() === 'metplus_point'
+      ? '<em>PointStat memakai seluruh stasiun BMKG — lihat tab Overview / Scores. Peta spasial grid tersedia di metode METplus — spasial / grid.</em>'
+      : '<em>Pilih metode <strong>METplus — spasial / grid</strong> untuk melihat peta spasial.</em>';
     return;
   }
   const model = selectedModels()[0] || 'InaNWP';
@@ -691,7 +734,7 @@ async function loadScores() {
       }),
       extra: pts.map(p => ({
         rmse: p.rmse, bias: p.bias, mae: p.mae, stde: p.stde,
-        correlation: p.correlation, csi: p.csi, ets: p.ets, n_cases: p.n_cases,
+        correlation: p.correlation, csi: p.csi, ets: p.ets, fss: p.fss, n_cases: p.n_cases,
       })),
     };
   });

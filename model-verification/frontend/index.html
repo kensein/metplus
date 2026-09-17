@@ -13,7 +13,7 @@
       <img src="assets/bmkg-logo.png" alt="Logo BMKG" class="logo" />
       <div>
         <h1>Model Verification</h1>
-        <p>HARP (titik) · METplus (spasial) | Pusat Standardisasi Instrumen MKG</p>
+        <p>HARP (titik) · METplus (grid / PointStat / FSS / MODE) | Pusat Standardisasi Instrumen MKG</p>
       </div>
     </div>
   </header>
@@ -25,8 +25,11 @@
         <select id="methodSelect" aria-label="Metode verifikasi">
           <option value="harp">HARP — titik stasiun</option>
           <option value="metplus">METplus — spasial / grid</option>
+          <option value="metplus_point">METplus — PointStat (stasiun ID)</option>
+          <option value="metplus_fss">METplus — FSS (neighborhood)</option>
+          <option value="metplus_mode">METplus — MODE (object-based)</option>
         </select>
-        <p id="methodHint" class="hint">Pilih engine: HARP (stasiun) atau METplus (grid).</p>
+        <p id="methodHint" class="hint">Pilih engine: HARP atau METplus (grid / titik / FSS / MODE).</p>
       </section>
 
       <section>
@@ -90,6 +93,7 @@
               <option value="correlation">Correlation (r)</option>
               <option value="csi">CSI (METplus)</option>
               <option value="ets">ETS (METplus)</option>
+              <option value="fss">FSS (neighborhood)</option>
             </select>
           </label>
         </div>

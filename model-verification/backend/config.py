@@ -153,9 +153,11 @@ DUMMY_MODELS = [m.strip() for m in os.getenv("DUMMY_MODELS", "InaCAWO,GFS,IFS").
 USE_DUMMY_MODELS = os.getenv("USE_DUMMY_MODELS", "true").lower() in ("1", "true", "yes")
 REAL_MODELS = [m for m in MODELS if m not in DUMMY_MODELS]
 
-# Model Verification: HARP (point) | METplus (spatial/grid)
+# Model Verification: HARP + METplus (grid / point / FSS / MODE)
 DEFAULT_METHOD = os.getenv("DEFAULT_METHOD", "harp").strip().lower()
-METHODS = ["harp", "metplus"]
+_METHODS_ENV = os.getenv("METHODS", "harp,metplus,metplus_point,metplus_fss,metplus_mode")
+METHODS = [m.strip().lower() for m in _METHODS_ENV.split(",") if m.strip()]
+METPLUS_METHODS = {"metplus", "metplus_point", "metplus_fss", "metplus_mode"}
 METPLUS_DATA_DIR = Path(os.getenv("METPLUS_DATA_DIR", str(DATA_DIR / "metplus")))
 # DPU compute (ganti litbangweb/Docker)
 COMPUTE_HOST = os.getenv("COMPUTE_HOST", "dpu")

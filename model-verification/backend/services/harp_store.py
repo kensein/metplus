@@ -75,10 +75,22 @@ def _parse_dt(ts: str | datetime) -> datetime:
         s = s[:-1]
     if "+" in s[10:]:
         s = s[: s.index("+", 10)]
+    # METplus / compact cycle tags: YYYYMMDDHH or YYYYMMDDHHMM
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) >= 10 and (s.isdigit() or (len(s) <= 12 and digits == s.replace(" ", ""))):
+        return datetime.strptime(digits[:10], "%Y%m%d%H")
+    if len(digits) == 10 and ("-" not in s and "T" not in s and ":" not in s):
+        return datetime.strptime(digits, "%Y%m%d%H")
     try:
         return datetime.fromisoformat(s)
     except ValueError:
-        return datetime.strptime(s[:19], "%Y-%m-%dT%H:%M:%S")
+        pass
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y%m%d%H", "%Y%m%d_%H"):
+        try:
+            return datetime.strptime(s[:19] if "T" in s or " " in s else s[:10], fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized datetime: {ts!r}")
 
 
 def iso_z(dt: datetime) -> str:
