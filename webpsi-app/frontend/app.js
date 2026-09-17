@@ -95,9 +95,9 @@
 
     explain.innerHTML =
       "<ul>" +
-        "<li><strong>Prakiraan (FCST)</strong> — keluaran model InaNWP untuk akumulasi hujan 3 jam hingga waktu valid di atas.</li>" +
-        "<li><strong>Observasi (OBS)</strong> — estimasi hujan satelit GSMAP pada periode yang sama.</li>" +
-        "<li><strong>Selisih (DIFF)</strong> — FCST dikurangi OBS (mm). Nilai positif: prakiraan lebih basah; negatif: lebih kering.</li>" +
+        "<li><strong>Prakiraan (FCST)</strong>: keluaran model InaNWP untuk akumulasi hujan 3 jam hingga waktu valid di atas.</li>" +
+        "<li><strong>Observasi (OBS)</strong>: estimasi hujan satelit GSMAP pada periode yang sama.</li>" +
+        "<li><strong>Selisih (DIFF)</strong>: FCST dikurangi OBS (mm). Nilai positif berarti prakiraan lebih basah; negatif berarti lebih kering.</li>" +
       "</ul>";
 
     const images = sortImages(set.images);
