@@ -55,12 +55,12 @@ const FLOW_STORAGE_KEY = 'mv_flow_v1';
 
 const TECHNIQUES_BY_VERIFIER = {
   gsmap: [
-    { id: 'metplus', label: 'GridStat (spasial)' },
+    { id: 'metplus', label: 'GridStat (spatial)' },
     { id: 'metplus_fss', label: 'FSS (neighborhood)' },
     { id: 'metplus_mode', label: 'MODE (object-based)' },
   ],
   stations: [
-    { id: 'metplus_point', label: 'PointStat (stasiun BMKG)' },
+    { id: 'metplus_point', label: 'PointStat (BMKG stations)' },
   ],
 };
 
@@ -87,7 +87,7 @@ function isMetplusMethod(m = selectedMethod()) {
 
 function methodQ(extra = '') {
   const q = `method=${encodeURIComponent(selectedMethod())}`;
-  // Hanya buang ?/& di AWAL extra — jangan hapus & di tengah (bug: models=InaNWPscore=rmse)
+  // Hanya buang ?/& di AWAL extra · jangan hapus & di tengah (bug: models=InaNWPscore=rmse)
   const rest = String(extra || '').replace(/^[?&]+/, '');
   return rest ? `${q}&${rest}` : q;
 }
@@ -135,18 +135,18 @@ function updateSessionBadge() {
   if (!badge) return;
   if (currentEngine === 'harp') {
     badge.textContent = 'HARP · Soft / Sinoptik';
-    if (hint) hint.textContent = 'Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik.';
-    if (sub) sub.textContent = 'HARP (titik stasiun) | Pusat Standardisasi Instrumen MKG';
+    if (hint) hint.textContent = 'Station-point scores against BMKG Soft or Sinoptik.';
+    if (sub) sub.textContent = 'HARP (station points) · Instrument Standardization Center MKG';
   } else if (currentEngine === 'metplus' && currentVerifier === 'gsmap') {
     badge.textContent = `METplus · GSMAP · ${methodLabel(selectedMethod())}`;
-    if (hint) hint.textContent = 'Verifikator GSMAP: GridStat / FSS / MODE vs hujan satelit.';
-    if (sub) sub.textContent = 'METplus · verifikator GSMAP | Pusat Standardisasi Instrumen MKG';
+    if (hint) hint.textContent = 'GSMaP verifier: GridStat, FSS, and MODE against satellite rain.';
+    if (sub) sub.textContent = 'METplus · GSMaP verifier · Instrument Standardization Center MKG';
   } else if (currentEngine === 'metplus' && currentVerifier === 'stations') {
-    badge.textContent = 'METplus · Stasiun BMKG · PointStat';
-    if (hint) hint.textContent = 'PointStat Soft multi-param (suhu/RH/QFF/angin/hujan) — sama sumber obs HARP.';
-    if (sub) sub.textContent = 'METplus · verifikator stasiun BMKG | Pusat Standardisasi Instrumen MKG';
+    badge.textContent = 'METplus · BMKG stations · PointStat';
+    if (hint) hint.textContent = 'PointStat Soft multi-param (temp, RH, QFF, wind, rain). Same Soft obs as HARP.';
+    if (sub) sub.textContent = 'METplus · BMKG station verifier · Instrument Standardization Center MKG';
   } else {
-    badge.textContent = '—';
+    badge.textContent = '-';
   }
 }
 
@@ -157,7 +157,7 @@ function applyTabVisibility() {
     const tab = btn.dataset.tab;
     let show = true;
     if (engine === 'harp') {
-      // HARP: overview, scores, map, station, method — tanpa spatial
+      // HARP: overview, scores, map, station, method · tanpa spatial
       show = ['overview', 'scores', 'map', 'station', 'method'].includes(tab);
     } else if (engine === 'metplus' && verifier === 'gsmap') {
       // GSMAP: overview, scores, spatial, method
@@ -188,8 +188,8 @@ function showGateOnly() {
   document.getElementById('verifierGate').hidden = true;
   document.getElementById('appLayout').hidden = true;
   const sub = document.getElementById('headerSubtitle');
-  if (sub) sub.textContent = 'Pilih metode verifikasi untuk memulai | Pusat Standardisasi Instrumen MKG';
-  document.getElementById('pipelineStatus').textContent = 'Pilih metode di atas untuk memulai…';
+  if (sub) sub.textContent = 'Choose a verification engine to begin · Instrument Standardization Center MKG';
+  document.getElementById('pipelineStatus').textContent = 'Choose an engine above to begin…';
 }
 
 function showVerifierGate() {
@@ -197,7 +197,7 @@ function showVerifierGate() {
   document.getElementById('verifierGate').hidden = false;
   document.getElementById('appLayout').hidden = true;
   const sub = document.getElementById('headerSubtitle');
-  if (sub) sub.textContent = 'METplus — pilih verifikator | Pusat Standardisasi Instrumen MKG';
+  if (sub) sub.textContent = 'METplus · pick an observation source · Instrument Standardization Center MKG';
 }
 
 async function enterDashboard({ engine, verifier = null, technique = null }) {
@@ -280,10 +280,10 @@ function applyMethodUi() {
   const spatialHint = document.getElementById('spatialHint');
   if (spatialHint) {
     spatialHint.textContent = m === 'metplus_fss'
-      ? 'Output FSS (neighborhood) vs GSMAP — skor per lead. Peta GridStat di bawah bila tersedia.'
+      ? 'FSS neighborhood scores vs GSMaP by lead. GridStat maps appear below when available.'
       : m === 'metplus_mode'
-        ? 'Output MODE (object-based) vs GSMAP — interest & objek. Peta GridStat di bawah bila tersedia.'
-        : 'Peta pasangan grid METplus (fcst / obs / selisih) vs GSMAP.';
+        ? 'MODE object scores vs GSMaP (interest and object counts). GridStat maps appear below when available.'
+        : 'METplus grid pair maps (forecast, observation, difference) against GSMaP.';
   }
   if (isMetplusMethod(m)) {
     maxLeadTime = 72;
@@ -311,7 +311,7 @@ function requireModels(emptyHtmlId, emptyMsg) {
   if (selectedModels().length) return true;
   if (emptyHtmlId) {
     const el = document.getElementById(emptyHtmlId);
-    if (el) el.innerHTML = emptyMsg || 'Centang minimal satu model di sidebar.';
+    if (el) el.innerHTML = emptyMsg || 'Select at least one model in the sidebar.';
   }
   return false;
 }
@@ -333,7 +333,7 @@ function refreshParameterOptions() {
   const notes = paramsUnavailableNotes.InaNWP || {};
   sel.innerHTML = Object.entries(paramsMeta).map(([k, v]) => {
     const ok = paramAvailableForSelection(k);
-    const hint = !ok && notes[k] ? ` — tidak di NC` : (!ok ? ' — tidak di NC model' : '');
+    const hint = !ok && notes[k] ? ` (not in NC)` : (!ok ? ' (not in model NC)' : '');
     return `<option value="${k}" ${ok ? '' : 'disabled'}>${v.label} (${v.unit})${hint}</option>`;
   }).join('');
   if (prev && [...sel.options].some(o => o.value === prev && !o.disabled)) {
@@ -347,13 +347,13 @@ function selectedInitTime() { return document.getElementById('initCycle').value 
 
 function formatLeadTime(h) {
   if (h === 0) return 'D+0 (analysis)';
-  if (h < 24) return `D+${(h / 24).toFixed(1)} (${h} jam)`;
-  return `D+${(h / 24).toFixed(1)} (${h} jam)`;
+  if (h < 24) return `D+${(h / 24).toFixed(1)} (${h} h)`;
+  return `D+${(h / 24).toFixed(1)} (${h} h)`;
 }
 
 /** UTC ISO → teks WIB (Asia/Jakarta, UTC+7). */
 function formatTimeWIB(isoUtc) {
-  if (!isoUtc) return '—';
+  if (!isoUtc) return '·';
   const s = String(isoUtc).endsWith('Z') ? isoUtc : `${isoUtc}Z`;
   try {
     return new Date(s).toLocaleString('id-ID', {
@@ -371,7 +371,7 @@ function formatTimeWIB(isoUtc) {
 }
 
 function formatTimeDual(isoUtc) {
-  if (!isoUtc) return '—';
+  if (!isoUtc) return '·';
   const utc = String(isoUtc).replace('Z', '').slice(0, 16).replace('T', ' ');
   return `${formatTimeWIB(isoUtc)} <span class="time-utc">(${utc} UTC)</span>`;
 }
@@ -425,9 +425,9 @@ function initCharts() {
       document.getElementById('scoreDetail').innerHTML =
         `<strong>${hit.series}</strong> · ${formatLeadTime(+hit.x)}<br>
          ${metricLabel}: <strong>${hit.y.toFixed(4)}</strong> ·
-         RMSE: ${ex.rmse?.toFixed(4) ?? '—'} · Bias: ${ex.bias?.toFixed(4) ?? '—'} ·
-         MAE: ${ex.mae?.toFixed(4) ?? '—'} · stde: ${ex.stde?.toFixed(4) ?? '—'} ·
-         r: ${ex.correlation?.toFixed(4) ?? '—'} · N: ${ex.n_cases ?? '—'}`;
+         RMSE: ${ex.rmse?.toFixed(4) ?? '·'} · Bias: ${ex.bias?.toFixed(4) ?? '·'} ·
+         MAE: ${ex.mae?.toFixed(4) ?? '·'} · stde: ${ex.stde?.toFixed(4) ?? '·'} ·
+         r: ${ex.correlation?.toFixed(4) ?? '·'} · N: ${ex.n_cases ?? '·'}`;
     },
   });
   stationChart = new MonasChart('stationChart', { zoomable: true });
@@ -449,14 +449,14 @@ async function bootstrapDashboard() {
     await reloadParameters();
   } catch (e) {
     document.getElementById('pipelineStatus').textContent =
-      `Gagal load /api/parameters (${API}): ${e.message}`;
+      `Failed to load /api/parameters (${API}): ${e.message}`;
     console.error('parameters', e);
     return;
   }
   try {
     const stations = await api('/api/stations');
     document.getElementById('stationSelect').innerHTML = stations.map(s =>
-      `<option value="${s.station_id}">${s.station_id} — ${s.name || s.station_id}</option>`).join('');
+      `<option value="${s.station_id}">${s.station_id} · ${s.name || s.station_id}</option>`).join('');
   } catch (e) {
     console.warn('stations', e);
   }
@@ -513,6 +513,22 @@ function bindFlowEvents() {
     clearFlowState();
     showGateOnly();
   });
+  document.getElementById('navMethods')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    openMethodsPanel();
+  });
+  document.getElementById('openMethodsFromGate')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    openMethodsPanel();
+  });
+  document.getElementById('navHome')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    currentEngine = null;
+    currentVerifier = null;
+    clearFlowState();
+    showGateOnly();
+    document.getElementById('flowGate')?.scrollIntoView({ behavior: 'smooth' });
+  });
 }
 
 async function loadModelSources() {
@@ -543,68 +559,114 @@ function modelBadge(model) {
 
 async function loadMethodology() {
   const el = document.getElementById('harpMethodology');
-  const m = selectedMethod();
-  if (isMetplusMethod(m)) {
-    const docs = {
-      metplus: {
-        title: 'METplus — GridStat (spasial)',
-        body: `<p>GridStat InaNWP vs GSMAP NRT. Precip total = <code>RAINNC+RAINC+RAINSH</code>, akumulasi 3 jam, lead H+3…H+72.</p>
-      <ol>
-        <li>Prepare precip 3h dari wrfout</li>
-        <li>Sum GSMAP jam-jaman → 3h, regrid ke grid model</li>
-        <li>grid_stat → CNT/CTS + pairs.nc + skor .txt</li>
-        <li>export_series.py → series.json</li>
-      </ol>`,
-      },
-      metplus_point: {
-        title: 'METplus — PointStat (stasiun BMKG Soft)',
-        body: `<p>PointStat membandingkan field surface InaNWP dengan <strong>observasi Soft/Sinoptik BMKG</strong> di seluruh stasiun (katalog WMO) — <em>sumber obs sama dengan HARP</em>, bukan GSMaP yang di-sample di titik stasiun.</p>
-      <p>Parameter selaras HARP Soft yang tersedia di wrfout: suhu 2m, titik embun, RH, QFF/QFE, angin (kecepatan &amp; arah), dan curah hujan terakhir (≈3 jam). Tutupan awan / Tmax / Tmin belum ada di wrfout ini.</p>
-      <ol>
-        <li>Export Soft/Sinoptik → sinoptik_*.json</li>
-        <li>prepare_point_fcst_surface.py + prepare_point_obs_soft.py (multi-param)</li>
-        <li>ascii2nc + point_stat</li>
-        <li>export → series_point.json (per parameter)</li>
-      </ol>`,
-      },
-      metplus_fss: {
-        title: 'METplus — FSS (neighborhood / Fractions Skill Score)',
-        body: `<p>GridStat dengan <code>nbrhd</code> (widths 1…11) menghasilkan NBRCTS/NBRCNT termasuk <strong>FSS</strong>.</p>
-      <p>Cocok untuk verifikasi hujan konvektif di mana posisi objek boleh bergeser dalam radius tertentu.</p>`,
-      },
-      metplus_mode: {
-        title: 'METplus — MODE (object-based)',
-        body: `<p>MODE mengidentifikasi objek hujan di forecast & observasi (GSMAP), lalu mencocokkan pasangan objek (centroid, area, intensitas).</p>
-      <p>Metrik utama: total interest, jumlah objek fcst/obs/matched.</p>`,
-      },
-    };
-    const d = docs[m] || docs.metplus;
-    el.innerHTML = `<h2>${d.title}</h2>${d.body}<p>Compute di <strong>DPU</strong>. Webpsi hanya menampilkan artifact.</p>`;
+  if (!el) return;
+  const focus = selectedMethod();
+  try {
+    const data = await api(`/api/methodology?method=${encodeURIComponent(focus)}`);
+    el.innerHTML = renderMethodologyHtml(data, focus);
+  } catch (e) {
+    el.innerHTML = `<em>Failed to load methods: ${e.message}</em>`;
+  }
+}
+
+function renderMethodologyHtml(data, focus) {
+  const harp = data.harp || {};
+  const metplus = data.metplus || {};
+
+  const harpScores = (harp.scores || []).map(s =>
+    `<tr><td>${s.id}</td><td><code>${s.formula}</code></td><td>${s.note}</td></tr>`
+  ).join('');
+  const harpFlow = (harp.workflow || []).map(w =>
+    `<li><strong>${w.name}</strong>. ${w.detail}</li>`
+  ).join('');
+  const harpRefs = (harp.references || []).map(r =>
+    `<li><a href="${r.url}" target="_blank" rel="noopener">${r.title}</a>. ${r.description}</li>`
+  ).join('');
+
+  let techHtml = '';
+  for (const t of (metplus.techniques || [])) {
+    const highlight = t.id === focus ? ' method-tech-focus' : '';
+    const scores = (t.scores || []).map(s =>
+      `<tr><td>${s.id}</td><td><code>${s.formula}</code></td><td>${s.note}</td></tr>`
+    ).join('');
+    const steps = (t.workflow || []).map(s => `<li>${s}</li>`).join('');
+    techHtml += `
+      <section class="method-tech${highlight}" id="tech-${t.id}">
+        <h3>${t.title}</h3>
+        <p>${t.summary}</p>
+        <h4>Workflow</h4>
+        <ol>${steps}</ol>
+        <h4>Scores and formulas</h4>
+        <table>
+          <tr><th>Score</th><th>Formula</th><th>Notes</th></tr>
+          ${scores}
+        </table>
+      </section>`;
+  }
+
+  return `
+    <h1>${data.title || 'Verification methods'}</h1>
+    <p class="method-intro">${data.intro || ''}</p>
+    <nav class="method-toc" aria-label="Methods sections">
+      <a href="#method-harp">HARP</a>
+      <a href="#method-metplus">METplus</a>
+      <a href="#tech-metplus">GridStat</a>
+      <a href="#tech-metplus_point">PointStat</a>
+      <a href="#tech-metplus_fss">FSS</a>
+      <a href="#tech-metplus_mode">MODE</a>
+    </nav>
+    <section class="method-engine" id="method-harp">
+      <h2>${harp.title || 'HARP point verification'}</h2>
+      <p>${harp.subtitle || ''}</p>
+      <div class="note-box">${harp.python_equivalence || ''}</div>
+      <h3>Workflow</h3>
+      <ol>${harpFlow}</ol>
+      <h3>Deterministic scores</h3>
+      <p>Every score uses complete forecast and observation pairs only. Incomplete pairs are skipped after join and QC.</p>
+      <table>
+        <tr><th>Score</th><th>Formula</th><th>Notes</th></tr>
+        ${harpScores}
+      </table>
+      <h3>Quality control</h3>
+      <p>${harp.qc || ''}</p>
+      <h3>References</h3>
+      <ul class="refs">${harpRefs}</ul>
+    </section>
+    <section class="method-engine" id="method-metplus">
+      <h2>${metplus.title || 'METplus verification'}</h2>
+      <p>${metplus.subtitle || ''}</p>
+      <div class="note-box">${metplus.compute_note || ''}</div>
+      <p>${metplus.shared_precip || ''}</p>
+      ${techHtml}
+    </section>
+  `;
+}
+
+function openMethodsPanel() {
+  // From gate: enter a lightweight methods view inside dashboard without forcing an engine,
+  // or scroll if already open. Prefer showing methods for current session, else open HARP docs.
+  const layout = document.getElementById('appLayout');
+  const go = () => {
+    document.querySelectorAll('#mainTabs .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    const tab = document.querySelector('#mainTabs .tab[data-tab="method"]');
+    const panel = document.getElementById('method');
+    if (tab) {
+      tab.hidden = false;
+      tab.classList.add('active');
+    }
+    if (panel) panel.classList.add('active');
+    loadMethodology();
+    panel?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  if (layout && !layout.hidden) {
+    go();
     return;
   }
-  try {
-    const m = await api('/api/harp/methodology');
-    el.innerHTML = `
-      <h2>${m.title}</h2>
-      <p>${m.subtitle}</p>
-      <div class="note-box">${m.python_equivalence || ''}</div>
-      <h3>Referensi HARP</h3>
-      <div class="refs">${m.references.map(r =>
-        `<a href="${r.url}" target="_blank" rel="noopener">${r.title}</a> — ${r.description}`
-      ).join('<br>')}</div>
-      <h3>Alur kerja (harpPoint)</h3>
-      <ol>${m.workflow.map(w => `<li><strong>${w.name}</strong> — ${w.detail}</li>`).join('')}</ol>
-      <h3>Skor deterministik (det_verify)</h3>
-      <p>Semua skor dihitung <strong>paired</strong>: hanya pasangan (fcst, obs) yang lengkap setelah join & QC.</p>
-      <table><tr><th>Skor</th><th>Formula</th><th>Catatan</th></tr>
-      ${m.scores.map(s => `<tr><td>${s.id}</td><td><code>${s.formula}</code></td><td>${s.note}</td></tr>`).join('')}
-      </table>
-      <h3>Quality Control</h3>
-      <p>${m.qc}</p>
-    `;
-  } catch (e) {
-    el.innerHTML = `<em>Gagal memuat metodologi HARP: ${e.message}</em>`;
-  }
+  // No session yet: open HARP dashboard path then Methods tab so formulas are readable.
+  enterDashboard({ engine: 'harp' }).then(() => {
+    go();
+  });
 }
 
 async function loadCycles() {
@@ -617,7 +679,7 @@ async function loadCycles() {
         : (c.init_time || '');
       return `<option value="${c.init_time || ''}">${label}</option>`;
     });
-    sel.innerHTML = '<option value="">Terbaru (semua cycle)</option>' + opts.join('');
+    sel.innerHTML = '<option value="">Latest (all cycles)</option>' + opts.join('');
   } catch (e) { console.warn('cycles', e); }
 }
 
@@ -632,7 +694,7 @@ async function loadPipelineStatus() {
     const inanwp = inventory.InaNWP || {};
     const done = status.model_runs?.filter(r => r.status === 'done').length || 0;
     const pending = status.model_runs?.filter(r => r.status === 'pending').length || 0;
-    el.textContent = `Pipeline: ${status.verification_scores_count} skor · ${done} run selesai · ${pending} pending · auto-sync aktif`;
+    el.textContent = `Pipeline: ${status.verification_scores_count} scores · ${done} runs done · ${pending} pending · auto-sync on`;
     src.innerHTML = `NC: <code>${inanwp.path || 'litbangweb'}</code> · ${inanwp.count || 0} file`;
   } catch (e) {
     el.textContent = 'Pipeline: ' + e.message;
@@ -834,7 +896,7 @@ async function refreshAll() {
       const box = document.createElement('div');
       box.className = 'error';
       box.style.cssText = 'margin:1rem;padding:0.75rem;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:8px;';
-      box.textContent = `Gagal memuat tab ${tab || '?'}: ${e.message || e}`;
+      box.textContent = `Failed to load tab ${tab || '?'}: ${e.message || e}`;
       host.prepend(box);
     }
   }
@@ -849,9 +911,9 @@ async function refreshAll() {
 async function loadOverview() {
   const cards = document.getElementById('rankingCards');
   const kpis = document.getElementById('kpiGrid');
-  if (!requireModels('rankingCards', '<em>Centang minimal satu model di sidebar.</em>')) {
+  if (!requireModels('rankingCards', '<em>Select at least one model in the sidebar.</em>')) {
     if (kpis) kpis.innerHTML = '';
-    rankingChart?.setBar({ title: 'Pilih model', yLabel: 'RMSE', labels: ['—'], values: [0], colors: ['#e2e8f0'] });
+    rankingChart?.setBar({ title: 'Select a model', yLabel: 'RMSE', labels: ['-'], values: [0], colors: ['#e2e8f0'] });
     return;
   }
   const lt = document.getElementById('leadTime').value;
@@ -870,7 +932,7 @@ async function loadOverview() {
   try {
     ranking = await api(`/api/verification/ranking?${rankQ}`);
   } catch (e) {
-    if (cards) cards.innerHTML = `<em>Gagal ranking: ${e.message}</em>`;
+    if (cards) cards.innerHTML = `<em>Ranking failed: ${e.message}</em>`;
     throw e;
   }
   try {
@@ -887,11 +949,11 @@ async function loadOverview() {
   const rows = ranking.ranking || [];
   const metricKey = ranking.score_metric || scoreMetric;
   if (!rows.length) {
-    if (cards) cards.innerHTML = '<em>Belum ada ranking untuk metode/model ini.</em>';
+    if (cards) cards.innerHTML = '<em>No ranking yet for this method or model set.</em>';
   } else {
     cards.innerHTML = rows.map(r => {
       const mean = r.mean_score ?? r.mean_rmse;
-      const meanTxt = (typeof mean === 'number' && Number.isFinite(mean)) ? mean.toFixed(3) : '—';
+      const meanTxt = (typeof mean === 'number' && Number.isFinite(mean)) ? mean.toFixed(3) : '·';
       const maeTxt = (typeof r.mean_mae === 'number') ? r.mean_mae.toFixed(3) : null;
       const biasTxt = (typeof r.mean_bias === 'number') ? r.mean_bias.toFixed(3) : null;
       const metricLabel = (r.metric || metricKey || 'rmse').toUpperCase();
@@ -899,13 +961,13 @@ async function loadOverview() {
         <div class="rank-num">#${r.rank || 1}</div>
         <div class="model-name">${r.model} ${modelBadge(r.model)}</div>
         <div class="metric">Mean ${metricLabel}: <strong>${meanTxt}</strong>${maeTxt != null ? ` · MAE: ${maeTxt}` : ''}</div>
-        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Metode: ${methodLabel(method)}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
+        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Method: ${methodLabel(method)}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
       </div>`;
     }).join('');
   }
 
   rankingChart?.setBar({
-    title: `Ranking ${methodLabel(method)} — Mean ${(rows[0]?.metric || metricKey || 'rmse').toUpperCase()}`,
+    title: `Ranking ${methodLabel(method)} · Mean ${(rows[0]?.metric || metricKey || 'rmse').toUpperCase()}`,
     yLabel: rows[0]?.metric || metricKey || 'Mean score',
     labels: rows.map(r => r.model),
     values: rows.map(r => {
@@ -921,18 +983,18 @@ async function loadOverview() {
     kpis.innerHTML = scoreRows.length
       ? scoreRows.map(s => {
           const primary = method === 'metplus_fss'
-            ? `FSS ${typeof s.fss === 'number' ? s.fss.toFixed(3) : '—'}`
+            ? `FSS ${typeof s.fss === 'number' ? s.fss.toFixed(3) : '·'}`
             : method === 'metplus_mode'
-              ? `Interest ${typeof s.total_interest === 'number' ? s.total_interest.toFixed(3) : (typeof s.ets === 'number' ? s.ets.toFixed(3) : '—')}`
-              : `RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '—'}`;
+              ? `Interest ${typeof s.total_interest === 'number' ? s.total_interest.toFixed(3) : (typeof s.ets === 'number' ? s.ets.toFixed(3) : '·')}`
+              : `RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '·'}`;
           return `
         <div class="kpi">
           <div class="label">${s.model} · ${formatLeadTime(s.lead_time)}</div>
           <div class="value">${primary}</div>
-          <div class="label">Bias ${typeof s.bias === 'number' ? s.bias.toFixed(2) : '—'} · MAE ${typeof s.mae === 'number' ? s.mae.toFixed(2) : '—'} · CSI ${typeof s.csi === 'number' ? s.csi.toFixed(2) : '—'} · N=${s.n_cases ?? '—'}</div>
+          <div class="label">Bias ${typeof s.bias === 'number' ? s.bias.toFixed(2) : '·'} · MAE ${typeof s.mae === 'number' ? s.mae.toFixed(2) : '·'} · CSI ${typeof s.csi === 'number' ? s.csi.toFixed(2) : '·'} · N=${s.n_cases ?? '·'}</div>
         </div>`;
         }).join('')
-      : '<em class="hint">Tidak ada skor untuk lead time ini — geser lead atau buka tab Scores vs Lead Time.</em>';
+      : '<em class="hint">No scores for this lead. Move the lead slider or open Scores vs lead time.</em>';
   }
 }
 
@@ -960,25 +1022,25 @@ async function renderMetplusScorePanel(method) {
     const data = await api(`/api/verification/scores?${scoresQuery()}`);
     const rows = (data.scores || []).slice().sort((a, b) => a.lead_time - b.lead_time);
     if (!rows.length) {
-      panel.innerHTML = `<em>Belum ada skor ${methodLabel(method)}. Pastikan pipeline DPU sudah push series_fss / series_mode.</em>`;
+      panel.innerHTML = `<em>No ${methodLabel(method)} scores yet. Confirm the DPU pipeline has pushed series_fss / series_mode.</em>`;
       return;
     }
     if (method === 'metplus_fss') {
       const meanFss = rows.reduce((s, r) => s + (r.fss || 0), 0) / rows.length;
       panel.innerHTML = `
-        <h3>FSS (Fractions Skill Score) — InaNWP vs GSMAP</h3>
+        <h3>FSS (Fractions Skill Score) · InaNWP vs GSMaP</h3>
         <div class="metplus-kpis">
-          <div class="kpi-mini"><div class="v">${meanFss.toFixed(3)}</div><div class="l">Mean FSS (H+3…H+72)</div></div>
+          <div class="kpi-mini"><div class="v">${meanFss.toFixed(3)}</div><div class="l">Mean FSS (H+3 to H+72)</div></div>
           <div class="kpi-mini"><div class="v">${rows.length}</div><div class="l">Lead points</div></div>
-          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '—'}</div><div class="l">Init cycle</div></div>
+          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '·'}</div><div class="l">Init cycle</div></div>
         </div>
         <table>
           <thead><tr><th>Lead</th><th>Valid</th><th>FSS</th></tr></thead>
           <tbody>
             ${rows.map(r => `<tr>
               <td>${formatLeadTime(r.lead_time)}</td>
-              <td>${r.valid || '—'}</td>
-              <td><strong>${typeof r.fss === 'number' ? r.fss.toFixed(4) : '—'}</strong></td>
+              <td>${r.valid || '·'}</td>
+              <td><strong>${typeof r.fss === 'number' ? r.fss.toFixed(4) : '·'}</strong></td>
             </tr>`).join('')}
           </tbody>
         </table>`;
@@ -986,26 +1048,26 @@ async function renderMetplusScorePanel(method) {
       const meanI = rows.reduce((s, r) => s + (r.total_interest ?? r.ets ?? 0), 0) / rows.length;
       const meanObj = rows.reduce((s, r) => s + (r.n_cases || 0), 0) / rows.length;
       panel.innerHTML = `
-        <h3>MODE (object-based) — InaNWP vs GSMAP</h3>
+        <h3>MODE (object-based) · InaNWP vs GSMaP</h3>
         <div class="metplus-kpis">
           <div class="kpi-mini"><div class="v">${meanI.toFixed(3)}</div><div class="l">Mean total interest</div></div>
           <div class="kpi-mini"><div class="v">${meanObj.toFixed(0)}</div><div class="l">Mean matched pairs</div></div>
-          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '—'}</div><div class="l">Init cycle</div></div>
+          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '·'}</div><div class="l">Init cycle</div></div>
         </div>
         <table>
           <thead><tr><th>Lead</th><th>Valid</th><th>Interest</th><th>Matched</th></tr></thead>
           <tbody>
             ${rows.map(r => `<tr>
               <td>${formatLeadTime(r.lead_time)}</td>
-              <td>${r.valid || '—'}</td>
-              <td><strong>${typeof (r.total_interest ?? r.ets) === 'number' ? (r.total_interest ?? r.ets).toFixed(4) : '—'}</strong></td>
-              <td>${r.n_cases ?? '—'}</td>
+              <td>${r.valid || '·'}</td>
+              <td><strong>${typeof (r.total_interest ?? r.ets) === 'number' ? (r.total_interest ?? r.ets).toFixed(4) : '·'}</strong></td>
+              <td>${r.n_cases ?? '·'}</td>
             </tr>`).join('')}
           </tbody>
         </table>`;
     }
   } catch (e) {
-    panel.innerHTML = `<em>Gagal memuat skor ${methodLabel(method)}: ${e.message}</em>`;
+    panel.innerHTML = `<em>Failed to load ${methodLabel(method)} scores: ${e.message}</em>`;
   }
 }
 
@@ -1017,8 +1079,8 @@ async function loadSpatial() {
 
   if (!isMetplusMethod() || method === 'metplus_point') {
     gal.innerHTML = method === 'metplus_point'
-      ? '<em>PointStat memakai seluruh stasiun BMKG — lihat tab Overview / Scores / Detail Stasiun.</em>'
-      : '<em>Pilih metode <strong>METplus</strong> (GridStat / FSS / MODE) untuk melihat output spasial.</em>';
+      ? '<em>PointStat uses all BMKG stations. See Overview, Scores, or Station detail.</em>'
+      : '<em>Choose <strong>METplus</strong> (GridStat / FSS / MODE) to see spatial output.</em>';
     return;
   }
 
@@ -1029,16 +1091,16 @@ async function loadSpatial() {
     const maps = data.maps || [];
     if (!maps.length) {
       if (method === 'metplus') {
-        gal.innerHTML = '<em>Belum ada peta METplus. Jalankan pipeline DPU lalu sync maps/.</em>';
+        gal.innerHTML = '<em>No METplus maps yet. Run the DPU pipeline and sync maps/.</em>';
       } else {
-        gal.innerHTML = '<em class="hint">Tidak ada peta GridStat pendamping — skor FSS/MODE di atas sudah dari artifact DPU.</em>';
+        gal.innerHTML = '<em class="hint">No companion GridStat maps. FSS or MODE scores above already come from DPU artifacts.</em>';
       }
       return;
     }
     const latest = maps.slice(-6).reverse();
     const caption = method === 'metplus'
       ? ''
-      : `<p class="hint">Peta GridStat (konteks) — skor ${methodLabel(method)} ada di panel atas.</p>`;
+      : `<p class="hint">GridStat maps for context. ${methodLabel(method)} scores are in the panel above.</p>`;
     gal.innerHTML = caption + latest.map(m => {
       const fcst = m.files['fcst.png'] ? `${API}/api/metplus/maps/${m.valid}/fcst.png` : '';
       const obs = m.files['obs.png'] ? `${API}/api/metplus/maps/${m.valid}/obs.png` : '';
@@ -1053,7 +1115,7 @@ async function loadSpatial() {
       </div>`;
     }).join('');
   } catch (e) {
-    gal.innerHTML = `<em>Gagal memuat peta spasial: ${e.message}</em>`;
+    gal.innerHTML = `<em>Failed to load spatial maps: ${e.message}</em>`;
   }
 }
 
@@ -1062,15 +1124,15 @@ async function loadScores() {
   const metricLabel = SCORE_METRICS[metric]?.label || metric;
   const detail = document.getElementById('scoreDetail');
   if (!selectedModels().length) {
-    scoreChart?.setLines({ title: 'Centang minimal satu model', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    scoreChart?.setLines({ title: 'Select at least one model', xLabel: 'Lead time (h)', yLabel: metricLabel, xNumeric: true, series: [] });
     return;
   }
   let data;
   try {
     data = await api(`/api/verification/scores?${scoresQuery()}`);
   } catch (e) {
-    if (detail) detail.innerHTML = `<span style="color:#b91c1c">Gagal load scores: ${e.message}</span>`;
-    scoreChart?.setLines({ title: 'Gagal memuat skor', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    if (detail) detail.innerHTML = `<span style="color:#b91c1c">Failed to load scores: ${e.message}</span>`;
+    scoreChart?.setLines({ title: 'Failed to load scores', xLabel: 'Lead time (h)', yLabel: metricLabel, xNumeric: true, series: [] });
     return;
   }
   const series = selectedModels().map(m => {
@@ -1090,8 +1152,8 @@ async function loadScores() {
     };
   });
   scoreChart?.setLines({
-    title: `${metricLabel} vs Lead Time — ${methodLabel(selectedMethod())} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
-    xLabel: 'Lead Time (jam)',
+    title: `${metricLabel} vs lead time · ${methodLabel(selectedMethod())} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
+    xLabel: 'Lead time (h)',
     yLabel: metricLabel,
     xNumeric: true,
     series,
@@ -1100,8 +1162,8 @@ async function loadScores() {
   if (detail) {
     const n = (data.scores || []).length;
     detail.innerHTML = n
-      ? `Memuat ${n} titik skor (${selectedMethod().toUpperCase()}). Klik titik pada grafik untuk detail.`
-      : '<em>Tidak ada titik skor. Pastikan pipeline DPU sudah dijalankan dan artifact ter-sync.</em>';
+      ? `Loaded ${n} score points (${selectedMethod().toUpperCase()}). Click a point for details.`
+      : '<em>No score points. Confirm the DPU pipeline ran and artifacts are synced.</em>';
   }
 }
 
@@ -1123,7 +1185,7 @@ async function ensureMapBulk() {
 function renderMapFromCache() {
   if (!selectedModels().length) {
     stationMap?.setStations([]);
-    document.getElementById('mapDetail').textContent = 'Centang minimal satu model di sidebar.';
+    document.getElementById('mapDetail').textContent = 'Select at least one model in the sidebar.';
     return;
   }
   if (!mapBulkCache.data) return loadMap();
@@ -1139,12 +1201,12 @@ function renderMapFromCache() {
     stationMap.setStations([]);
     const detail = document.getElementById('mapDetail');
     if (!available.length) {
-      detail.textContent = 'Belum ada data peta untuk filter ini (parameter/init cycle).';
+      detail.textContent = 'No map data for this parameter or init cycle.';
     } else {
       const minLt = Math.min(...available);
       const maxLt = Math.max(...available);
-      detail.innerHTML = `<strong>Data kosong</strong> untuk ${formatLeadTime(lt)}.<br>
-        Lead time tersedia: ${formatLeadTime(minLt)} – ${formatLeadTime(maxLt)} (${minLt}–${maxLt} jam).
+      detail.innerHTML = `<strong>Empty</strong> for ${formatLeadTime(lt)}.<br>
+        Available leads: ${formatLeadTime(minLt)} to ${formatLeadTime(maxLt)} (${minLt} to ${maxLt} h).
         ${lt > maxLt ? 'Perluas data NC/pipeline untuk lead lebih jauh.' : 'Geser slider ke rentang tersebut.'}`;
     }
     return;
@@ -1164,9 +1226,9 @@ function renderMapFromCache() {
   })));
   const detail = document.getElementById('mapDetail');
   if (resolvedLt !== lt) {
-    detail.textContent = `Menampilkan lead time terdekat: ${formatLeadTime(resolvedLt)} (slider: ${formatLeadTime(lt)}). Klik stasiun untuk detail.`;
+    detail.textContent = `Showing nearest lead ${formatLeadTime(resolvedLt)} (slider ${formatLeadTime(lt)}). Click a station for detail.`;
   } else {
-    detail.textContent = `${data.length} stasiun · ${formatLeadTime(lt)}. Klik stasiun untuk fcst vs obs.`;
+    detail.textContent = `${data.length} stations · ${formatLeadTime(lt)}. Click a station for forecast vs observation.`;
   }
 }
 
@@ -1174,13 +1236,13 @@ async function loadMap() {
   try {
     if (!selectedModels().length) {
       stationMap?.setStations([]);
-      document.getElementById('mapDetail').textContent = 'Centang minimal satu model di sidebar.';
+      document.getElementById('mapDetail').textContent = 'Select at least one model in the sidebar.';
       return;
     }
     await ensureMapBulk();
     renderMapFromCache();
   } catch (e) {
-    document.getElementById('mapDetail').textContent = 'Gagal memuat peta: ' + e.message;
+    document.getElementById('mapDetail').textContent = 'Failed to load map: ' + e.message;
   }
 }
 
@@ -1205,9 +1267,9 @@ async function showStationMapDetail(st) {
   html += '<table><tr><th>Model</th><th>Fcst</th><th>Obs</th><th>Err</th></tr>';
   if (model) {
     const err = fcst != null && obs != null && !Number.isNaN(fcst) && !Number.isNaN(obs)
-      ? (fcst - obs).toFixed(3) : '—';
-    html += `<tr><td>${model}</td><td>${Number.isFinite(fcst) ? fcst.toFixed(2) : '—'}</td>`;
-    html += `<td>${Number.isFinite(obs) ? obs.toFixed(2) : '—'}</td><td>${err}</td></tr>`;
+      ? (fcst - obs).toFixed(3) : '·';
+    html += `<tr><td>${model}</td><td>${Number.isFinite(fcst) ? fcst.toFixed(2) : '·'}</td>`;
+    html += `<td>${Number.isFinite(obs) ? obs.toFixed(2) : '·'}</td><td>${err}</td></tr>`;
   }
   html += '</table>';
   document.getElementById('mapDetail').innerHTML = html;
@@ -1247,7 +1309,7 @@ function renderStationFromCache() {
 
   if (data.note && !(data.inits || []).length && !(data.obs || []).length && !(data.series || []).length) {
     stationChart.setLines({
-      title: `${data.station?.name || stationId} — ${selectedMethod().toUpperCase()}`,
+      title: `${data.station?.name || stationId} · ${selectedMethod().toUpperCase()}`,
       xLabel: 'Waktu valid (WIB)', yLabel: '', xNumeric: true, xTime: true, series: [],
     });
     document.getElementById('stationTable').innerHTML = `<em>${data.note}</em>`;
@@ -1287,7 +1349,7 @@ function renderStationFromCache() {
     });
 
     stationChart.setLines({
-      title: `${data.station.name || stationId} — ${paramLabel} · ${data.method === 'metplus_point' ? 'PointStat' : `${months} bln`} · per init cycle`,
+      title: `${data.station.name || stationId} · ${paramLabel} · ${data.method === 'metplus_point' ? 'PointStat' : `${months} mo`} · per init cycle`,
       xLabel: 'Waktu valid (WIB)',
       yLabel: paramUnit,
       xNumeric: true,
@@ -1315,7 +1377,7 @@ function renderStationFromCache() {
 
     if (!flat.length && !obsPts.length) {
       document.getElementById('stationTable').innerHTML =
-        `<em>${data.note || `Belum ada data untuk stasiun/parameter ini (window ${months} bulan).`}</em>`;
+        `<em>${data.note || `No data for this station or parameter in the last ${months} months.`}</em>`;
       return;
     }
 
@@ -1324,9 +1386,9 @@ function renderStationFromCache() {
     html += '<div class="table-scroll"><table class="station-ts-table"><thead><tr><th>Valid (WIB)</th><th>Init</th><th>Model</th><th>Lead</th><th>Fcst</th><th>Obs</th><th>Err</th></tr></thead><tbody>';
     const tableRows = flat.slice(-200);
     tableRows.forEach(r => {
-      const err = r.fcst != null && r.obs != null ? (r.fcst - r.obs).toFixed(2) : '—';
+      const err = r.fcst != null && r.obs != null ? (r.fcst - r.obs).toFixed(2) : '·';
       html += `<tr><td>${formatTimeDual(r.valid_time)}</td><td>${formatTimeWIB(r.init_time)}</td><td>${r.model}</td>`;
-      html += `<td>${formatLeadTime(r.lead_time)}</td><td>${r.fcst?.toFixed(2) ?? '—'}</td><td>${r.obs?.toFixed(2) ?? '—'}</td><td>${err}</td></tr>`;
+      html += `<td>${formatLeadTime(r.lead_time)}</td><td>${r.fcst?.toFixed(2) ?? '·'}</td><td>${r.obs?.toFixed(2) ?? '·'}</td><td>${err}</td></tr>`;
     });
     html += '</tbody></table></div>';
     if (flat.length > 200) html = `<p class="lt-note">200 baris terakhir dari ${flat.length} titik fcst.</p>` + html;
@@ -1358,14 +1420,14 @@ function renderStationFromCache() {
     });
   });
   stationChart.setLines({
-    title: `${data.station.name || stationId} — ${paramsMeta[param]?.label} · ${months} bln · ${formatLeadTime(lt)}`,
+    title: `${data.station.name || stationId} · ${paramsMeta[param]?.label} · ${months} mo · ${formatLeadTime(lt)}`,
     xLabel: 'Waktu valid (WIB)',
     yLabel: paramsMeta[param]?.unit || '',
     xNumeric: true,
     xTime: true,
     series,
   });
-  document.getElementById('stationTable').innerHTML = `<em>Mode by_lead (legacy).</em>`;
+  document.getElementById('stationTable').innerHTML = `<em>by_lead mode (legacy).</em>`;
 }
 
 async function loadStationDetail() {
@@ -1373,10 +1435,10 @@ async function loadStationDetail() {
   if (!stationId) return;
   if (!selectedModels().length) {
     stationChart.setLines({
-      title: 'Centang minimal satu model di sidebar',
+      title: 'Select at least one model di sidebar',
       xLabel: 'Waktu valid (WIB)', yLabel: '', xNumeric: true, xTime: true, series: [],
     });
-    document.getElementById('stationTable').innerHTML = '<em>Centang minimal satu model di sidebar.</em>';
+    document.getElementById('stationTable').innerHTML = '<em>Select at least one model in the sidebar.</em>';
     return;
   }
   const key = `${stationId}|${stationDetailQuery()}`;

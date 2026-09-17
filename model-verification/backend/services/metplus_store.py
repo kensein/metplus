@@ -23,7 +23,7 @@ from backend.config import MODELS
 
 METPLUS_PARAM = "precip_3h"
 METPLUS_PARAM_META = {
-    "label": "Curah hujan 3 jam (RAINNC+RAINC+RAINSH)",
+    "label": "3-hour precipitation (RAINNC+RAINC+RAINSH)",
     "unit": "mm",
     "category": "continuous",
 }

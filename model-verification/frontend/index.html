@@ -1,63 +1,66 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Model Verification — PSIMKG BMKG</title>
+  <title>Model Verification · PSIMKG BMKG</title>
   <link rel="icon" href="assets/bmkg-logo.png" type="image/png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header>
     <div class="header-row">
-      <img src="assets/bmkg-logo.png" alt="Logo BMKG" class="logo" />
-      <div>
+      <img src="assets/bmkg-logo.png" alt="BMKG logo" class="logo" />
+      <div class="header-text">
         <h1>Model Verification</h1>
-        <p id="headerSubtitle">Pilih metode verifikasi untuk memulai | Pusat Standardisasi Instrumen MKG</p>
+        <p id="headerSubtitle">Choose a verification engine to begin · Instrument Standardization Center MKG</p>
       </div>
+      <nav class="header-nav" aria-label="Primary">
+        <a href="#flowGate" id="navHome" class="nav-link">Home</a>
+        <a href="#method" id="navMethods" class="nav-link">Methods</a>
+      </nav>
     </div>
   </header>
 
-  <!-- STEP 1: pilih engine -->
-  <section id="flowGate" class="flow-gate" aria-label="Pilih metode verifikasi">
+  <section id="flowGate" class="flow-gate" aria-label="Choose verification engine">
     <div class="flow-inner">
-      <p class="flow-step">Langkah 1 dari 2</p>
-      <h2>Pilih metode verifikasi</h2>
-      <p class="flow-lead">Satu alur per sesi. Setelah dipilih, dashboard lengkap akan terbuka.</p>
+      <p class="flow-step">Step 1 of 2</p>
+      <h2>Choose a verification engine</h2>
+      <p class="flow-lead">One path per session. After you pick, the full dashboard opens.</p>
       <div class="flow-cards">
         <button type="button" class="flow-card" data-engine="harp" id="pickHarp">
-          <span class="flow-card-kicker">Titik stasiun</span>
+          <span class="flow-card-kicker">Station points</span>
           <span class="flow-card-title">HARP</span>
-          <span class="flow-card-body">Verifikasi titik vs observasi BMKG Soft / Sinoptik. Ranking, skor vs lead, peta stasiun, detail stasiun.</span>
+          <span class="flow-card-body">Score forecasts at BMKG Soft or Sinoptik stations. Ranking, scores vs lead, station map, and station detail.</span>
         </button>
         <button type="button" class="flow-card" data-engine="metplus" id="pickMetplus">
-          <span class="flow-card-kicker">Grid &amp; objek</span>
+          <span class="flow-card-kicker">Grid and objects</span>
           <span class="flow-card-title">METplus</span>
-          <span class="flow-card-body">Verifikasi spasial / PointStat / FSS / MODE. Pilih dulu sumber observasi (verifikator).</span>
+          <span class="flow-card-body">Spatial verification, PointStat, FSS, and MODE. Next you will pick the observation source.</span>
         </button>
       </div>
+      <p class="flow-methods-link">Want the formulas first? Open <button type="button" class="linkish" id="openMethodsFromGate">Methods</button>.</p>
     </div>
   </section>
 
-  <!-- STEP 2: verifikator METplus -->
-  <section id="verifierGate" class="flow-gate" hidden aria-label="Pilih verifikator METplus">
+  <section id="verifierGate" class="flow-gate" hidden aria-label="Choose METplus verifier">
     <div class="flow-inner">
-      <p class="flow-step">Langkah 2 dari 2 · METplus</p>
-      <h2>Pilih verifikator (observasi referensi)</h2>
-      <p class="flow-lead">Verifikator menentukan teknik METplus yang tersedia. Model tetap sama: InaNWP, InaCAWO, GFS, IFS.</p>
+      <p class="flow-step">Step 2 of 2 · METplus</p>
+      <h2>Choose the observation source</h2>
+      <p class="flow-lead">The verifier decides which METplus techniques you get. Forecast models stay the same: InaNWP, InaCAWO, GFS, IFS.</p>
       <div class="flow-cards">
         <button type="button" class="flow-card" data-verifier="gsmap" id="pickGsmap">
-          <span class="flow-card-kicker">Observasi spasial</span>
-          <span class="flow-card-title">GSMAP</span>
-          <span class="flow-card-body">Hujan satelit grid. Membuka teknik <strong>GridStat</strong> (peta fcst/obs/diff), <strong>FSS</strong> (neighborhood), dan <strong>MODE</strong> (object-based).</span>
+          <span class="flow-card-kicker">Spatial observation</span>
+          <span class="flow-card-title">GSMaP</span>
+          <span class="flow-card-body">Satellite rainfall on a grid. Unlocks <strong>GridStat</strong> (forecast / obs / difference maps), <strong>FSS</strong> (neighborhood), and <strong>MODE</strong> (objects).</span>
         </button>
         <button type="button" class="flow-card" data-verifier="stations" id="pickStations">
-          <span class="flow-card-kicker">Observasi titik</span>
-          <span class="flow-card-title">Stasiun BMKG</span>
-          <span class="flow-card-body">Seluruh stasiun Indonesia — observasi Soft/Sinoptik (sama sumber HARP). Membuka teknik <strong>PointStat</strong>.</span>
+          <span class="flow-card-kicker">Point observation</span>
+          <span class="flow-card-title">BMKG stations</span>
+          <span class="flow-card-body">Stations across Indonesia using Soft or Sinoptik (same obs source as HARP). Unlocks <strong>PointStat</strong>.</span>
         </button>
       </div>
-      <button type="button" class="flow-back" id="backToEngine">← Kembali pilih metode</button>
+      <button type="button" class="flow-back" id="backToEngine">← Back to engine choice</button>
     </div>
   </section>
 
@@ -66,43 +69,40 @@
       <section class="context-section">
         <div class="context-row">
           <div>
-            <div class="context-label">Sesi aktif</div>
-            <div id="sessionBadge" class="context-badge">—</div>
+            <div class="context-label">Active session</div>
+            <div id="sessionBadge" class="context-badge">-</div>
           </div>
-          <button type="button" id="changeMethodBtn" class="ghost-btn">Ganti</button>
+          <button type="button" id="changeMethodBtn" class="ghost-btn">Change</button>
         </div>
         <p id="methodHint" class="hint"></p>
       </section>
 
       <section id="techniqueSection" hidden>
-        <h3>Teknik METplus</h3>
-        <select id="metplusSubmethod" aria-label="Teknik METplus">
-          <!-- diisi dinamis dari verifikator -->
-        </select>
+        <h3>METplus technique</h3>
+        <select id="metplusSubmethod" aria-label="METplus technique"></select>
       </section>
 
-      <!-- hidden sync for legacy selectedEngine() -->
       <select id="methodSelect" hidden aria-hidden="true">
         <option value="harp">HARP</option>
         <option value="metplus">METplus</option>
       </select>
 
       <section>
-        <h3>Init Cycle (D-0)</h3>
+        <h3>Init cycle (D-0)</h3>
         <select id="initCycle">
-          <option value="">Semua / Terbaru</option>
+          <option value="">All / latest</option>
         </select>
       </section>
 
       <section id="leadTimeSection">
-        <h3>Lead Time</h3>
+        <h3>Lead time</h3>
         <input type="range" id="leadTime" min="0" max="168" step="3" value="12" />
         <div class="lead-time-meta">
-          <span id="leadTimeLabel">D+0.5 (12 jam)</span>
-          <div class="lead-time-controls" role="group" aria-label="Kontrol lead time">
-            <button type="button" id="leadPrev" class="lead-btn" title="Lead sebelumnya">‹</button>
-            <button type="button" id="leadPlay" class="lead-btn lead-play" title="Putar lead time">▶</button>
-            <button type="button" id="leadNext" class="lead-btn" title="Lead berikutnya">›</button>
+          <span id="leadTimeLabel">D+0.5 (12 h)</span>
+          <div class="lead-time-controls" role="group" aria-label="Lead time controls">
+            <button type="button" id="leadPrev" class="lead-btn" title="Previous lead">‹</button>
+            <button type="button" id="leadPlay" class="lead-btn lead-play" title="Play leads">▶</button>
+            <button type="button" id="leadNext" class="lead-btn" title="Next lead">›</button>
           </div>
         </div>
       </section>
@@ -113,7 +113,7 @@
       </section>
 
       <section>
-        <h3>Model</h3>
+        <h3>Models</h3>
         <label><input type="checkbox" class="model-cb" value="InaNWP" checked /> InaNWP <span class="badge real">real</span></label>
         <label><input type="checkbox" class="model-cb" value="InaCAWO" checked /> InaCAWO <span class="badge dummy">dummy</span></label>
         <label><input type="checkbox" class="model-cb" value="GFS" checked /> GFS <span class="badge dummy">dummy</span></label>
@@ -123,12 +123,12 @@
 
     <main>
       <div class="tabs" id="mainTabs">
-        <button class="tab active" data-tab="overview" data-engines="harp,metplus">Overview &amp; Ranking</button>
-        <button class="tab" data-tab="scores" data-engines="harp,metplus">Scores vs Lead Time</button>
-        <button class="tab" data-tab="map" data-engines="harp" data-verifiers="">Peta Stasiun</button>
-        <button class="tab" data-tab="spatial" data-engines="metplus" data-verifiers="gsmap">Peta Spasial</button>
-        <button class="tab" data-tab="station" data-engines="harp,metplus" data-verifiers="stations">Detail Stasiun</button>
-        <button class="tab" data-tab="method" data-engines="harp,metplus">Metode</button>
+        <button class="tab active" data-tab="overview" data-engines="harp,metplus">Overview and ranking</button>
+        <button class="tab" data-tab="scores" data-engines="harp,metplus">Scores vs lead time</button>
+        <button class="tab" data-tab="map" data-engines="harp" data-verifiers="">Station map</button>
+        <button class="tab" data-tab="spatial" data-engines="metplus" data-verifiers="gsmap">Spatial maps</button>
+        <button class="tab" data-tab="station" data-engines="harp,metplus" data-verifiers="stations">Station detail</button>
+        <button class="tab" data-tab="method" data-engines="harp,metplus">Methods</button>
       </div>
 
       <div id="overview" class="panel active">
@@ -139,12 +139,12 @@
 
       <div id="scores" class="panel">
         <div class="scores-toolbar">
-          <label class="scores-metric-label">Metrik
+          <label class="scores-metric-label">Metric
             <select id="scoreMetric">
               <option value="rmse" selected>RMSE</option>
               <option value="mae">MAE</option>
               <option value="bias">Bias</option>
-              <option value="stde">stde</option>
+              <option value="stde">Error stdev</option>
               <option value="correlation">Correlation (r)</option>
               <option value="csi">CSI (METplus)</option>
               <option value="ets">ETS (METplus)</option>
@@ -153,39 +153,39 @@
           </label>
         </div>
         <div id="scoreChart" class="chart"></div>
-        <div id="scoreDetail" class="detail-box">Klik titik pada grafik untuk melihat angka detail.</div>
+        <div id="scoreDetail" class="detail-box">Click a point on the chart for exact values.</div>
       </div>
 
       <div id="map" class="panel">
         <div class="map-wrap">
           <div id="leafletMap"></div>
-          <div id="mapDetail" class="detail-box">Klik stasiun pada peta untuk melihat fcst vs obs (HARP).</div>
+          <div id="mapDetail" class="detail-box">Click a station on the map to compare forecast and observation (HARP).</div>
         </div>
       </div>
 
       <div id="spatial" class="panel">
-        <p id="spatialHint" class="hint">Peta pasangan grid METplus (fcst / obs / selisih).</p>
+        <p id="spatialHint" class="hint">METplus grid pair maps (forecast, observation, difference).</p>
         <div id="metplusScorePanel" class="metplus-score-panel" hidden></div>
         <div id="spatialGallery" class="spatial-gallery"></div>
       </div>
 
       <div id="method" class="panel">
-        <div id="harpMethodology" class="method-doc">Memuat metode...</div>
+        <div id="harpMethodology" class="method-doc">Loading methods…</div>
       </div>
 
       <div id="station" class="panel">
         <div class="station-toolbar">
           <select id="stationSelect"></select>
-          <label class="range-label">Rentang waktu
+          <label class="range-label">Time window
             <select id="stationRangeMonths">
-              <option value="1">1 bulan terakhir</option>
-              <option value="2">2 bulan terakhir</option>
-              <option value="3" selected>3 bulan terakhir</option>
-              <option value="4">4 bulan terakhir</option>
-              <option value="5">5 bulan terakhir</option>
-              <option value="6">6 bulan terakhir</option>
-              <option value="9">9 bulan terakhir</option>
-              <option value="12">12 bulan terakhir (maks)</option>
+              <option value="1">Last 1 month</option>
+              <option value="2">Last 2 months</option>
+              <option value="3" selected>Last 3 months</option>
+              <option value="4">Last 4 months</option>
+              <option value="5">Last 5 months</option>
+              <option value="6">Last 6 months</option>
+              <option value="9">Last 9 months</option>
+              <option value="12">Last 12 months (max)</option>
             </select>
           </label>
         </div>
@@ -195,13 +195,13 @@
           <button type="button" id="chartZoomReset" class="chart-zoom-btn" title="Reset zoom">Reset</button>
         </div>
         <div id="stationChart" class="chart"></div>
-        <div id="stationTable" class="detail-box">Tabel pasangan fcst vs obs per valid time.</div>
+        <div id="stationTable" class="detail-box">Forecast vs observation pairs by valid time.</div>
       </div>
     </main>
   </div>
 
   <footer class="site-footer">
-    <span id="pipelineStatus">Pilih metode di atas untuk memulai…</span>
+    <span id="pipelineStatus">Choose an engine above to begin…</span>
     <span id="dataSource"></span>
   </footer>
 

@@ -89,7 +89,7 @@ def _method(raw: str | None) -> str:
     }
     m = aliases.get(m, m)
     if m not in METHODS:
-        raise HTTPException(status_code=400, detail=f"method harus salah satu dari {METHODS}")
+        raise HTTPException(status_code=400, detail=f"method must be one of {METHODS}")
     return m
 
 
@@ -184,27 +184,27 @@ def list_methods() -> dict[str, Any]:
     metplus_children = [
         {
             "id": "metplus",
-            "label": "GridStat (spasial)",
+            "label": "GridStat (spatial)",
             "domain": "spatial",
-            "description": "GridStat InaNWP vs GSMAP — skor H+3…H+72 & peta pasangan grid",
+            "description": "GridStat of InaNWP against GSMaP with H+3 to H+72 scores and pair maps",
         },
         {
             "id": "metplus_point",
-            "label": "PointStat (stasiun)",
+            "label": "PointStat (stations)",
             "domain": "point",
-            "description": "PointStat InaNWP vs Soft/Sinoptik BMKG (multi-param = HARP Soft)",
+            "description": "PointStat of InaNWP against BMKG Soft or Sinoptik (same Soft set as HARP)",
         },
         {
             "id": "metplus_fss",
             "label": "FSS (neighborhood)",
             "domain": "spatial",
-            "description": "Fractions Skill Score / neighborhood verification (GridStat NBR*)",
+            "description": "Fractions Skill Score from neighborhood verification",
         },
         {
             "id": "metplus_mode",
             "label": "MODE (object-based)",
             "domain": "object",
-            "description": "Object-based verification objek hujan vs GSMAP",
+            "description": "Object-based rain verification against GSMaP",
         },
     ]
     engines = [
@@ -212,14 +212,14 @@ def list_methods() -> dict[str, Any]:
             "id": "harp",
             "label": "HARP",
             "domain": "point",
-            "description": "Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik",
+            "description": "Station-point verification against BMKG Soft or Sinoptik",
             "children": [],
         },
         {
             "id": "metplus",
             "label": "METplus",
             "domain": "spatial",
-            "description": "GridStat / PointStat / FSS / MODE vs GSMAP (pipeline DPU)",
+            "description": "GridStat, PointStat, FSS, and MODE from the DPU pipeline",
             "children": [c for c in metplus_children if c["id"] in METHODS or c["id"] == "metplus"],
         },
     ]
@@ -263,7 +263,7 @@ def pipeline_run() -> dict[str, Any]:
     if SERVE_READONLY:
         raise HTTPException(
             status_code=403,
-            detail="SERVE_READONLY: verifikasi dijalankan di litbangweb/PC, sync artifact ke webpsi",
+            detail="SERVE_READONLY: verification runs on compute host. Sync artifacts to webpsi.",
         )
     if USE_F32_STORE:
         from pathlib import Path
@@ -288,7 +288,7 @@ def pipeline_run() -> dict[str, Any]:
 def job_status(job_id: str) -> dict[str, Any]:
     job = get_job(job_id)
     if not job:
-        raise HTTPException(status_code=404, detail="Job tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Job not found")
     return {
         "id": job.id, "type": job.type, "status": job.status.value,
         "progress": job.progress, "message": job.message, "result": job.result,
@@ -335,8 +335,15 @@ async def fetch_bmkg_obs(body: ObsFetchRequest) -> dict[str, Any]:
 
 @app.get("/api/harp/methodology")
 def harp_methodology() -> dict[str, Any]:
+    from backend.services.harp_methodology import get_harp_methodology
+    return get_harp_methodology()
+
+
+@app.get("/api/methodology")
+def methodology(method: str | None = Query(None)) -> dict[str, Any]:
+    """Full HARP + METplus methods handbook (English)."""
     from backend.services.harp_methodology import get_methodology
-    return get_methodology()
+    return get_methodology(method)
 
 
 @app.get("/api/models/sources")
@@ -391,21 +398,21 @@ def list_parameters(method: str | None = Query(None)) -> dict[str, Any]:
         if "rainfall_last_mm" in verify:
             verify["rainfall_last_mm"] = {
                 **verify["rainfall_last_mm"],
-                "label": "Curah Hujan Terakhir (≈3 jam Soft)",
+                "label": "Latest rainfall (~3 h Soft)",
             }
         return {
             "verify_parameters": verify,
             "available_by_model": {mod: list(avail) for mod in MODELS},
             "unavailable_notes": {
                 "InaNWP": {
-                    "cloud_cover_oktas_m": "Tidak ada CLDFRA/TCDC di wrfout InaNWP ini",
-                    "rainfall_6h_rrr": "Soft jarang terisi per jam; PointStat pakai rainfall_last_mm",
-                    "rainfall_24h_rrrr": "Soft jarang terisi per jam; PointStat pakai rainfall_last_mm",
-                    "temp_max_c_txtxtx": "Tidak ada T2MAX di wrfout",
-                    "temp_min_c_tntntn": "Tidak ada T2MIN di wrfout",
-                    "temp_wetbulb_c": "Tidak ada wbpt di wrfout",
-                    "visibility_vv": "Tidak ada visibility di wrfout",
-                    "pressure_reading_mb": "Soft hampir kosong",
+                    "cloud_cover_oktas_m": "No CLDFRA or TCDC field in this wrfout",
+                    "rainfall_6h_rrr": "Soft rarely fills this hourly field. PointStat uses latest rainfall instead.",
+                    "rainfall_24h_rrrr": "Soft rarely fills this hourly field. PointStat uses latest rainfall instead.",
+                    "temp_max_c_txtxtx": "No T2MAX in wrfout",
+                    "temp_min_c_tntntn": "No T2MIN in wrfout",
+                    "temp_wetbulb_c": "No wet-bulb field in wrfout",
+                    "visibility_vv": "No visibility field in wrfout",
+                    "pressure_reading_mb": "Soft is almost empty for this field",
                 },
             },
             "models": MODELS,
@@ -428,10 +435,10 @@ def list_parameters(method: str | None = Query(None)) -> dict[str, Any]:
     available["InaNWP"] = list(INANWP_ASIM_PARAMS)
     unavailable_notes = {
         "InaNWP": {
-            "temp_max_c_txtxtx": "Tidak ada di NC asim (hanya t2m) — jangan samakan dengan suhu 2m",
-            "temp_min_c_tntntn": "Tidak ada di NC asim (hanya t2m)",
-            "temp_wetbulb_c": "Tidak ada field wbpt di NC asim",
-            "visibility_vv": "Tidak ada field visibility di NC asim",
+            "temp_max_c_txtxtx": "Missing from the asim crop (t2m only). Do not substitute 2 m temperature.",
+            "temp_min_c_tntntn": "Missing from the asim crop (t2m only).",
+            "temp_wetbulb_c": "No wet-bulb field in the asim crop.",
+            "visibility_vv": "No visibility field in the asim crop.",
         },
     }
     return {
@@ -545,7 +552,7 @@ def verification_scores(
         if df.empty:
             raise HTTPException(
                 status_code=404,
-                detail=f"Belum ada skor {m} — jalankan pipeline DPU / sync series.json",
+                detail=f"No {m} scores yet. Run the DPU pipeline or sync series.json",
             )
         out_param = parameter
         if m == "metplus_point":
@@ -568,7 +575,7 @@ def verification_scores(
         df = load_verification_scores(models=model_list, parameter=parameter, init_time=init_time, lead_time=lead_time)
 
     if df.empty:
-        raise HTTPException(status_code=404, detail="Belum ada skor verifikasi — jalankan HARP compute / sync artifact")
+        raise HTTPException(status_code=404, detail="No verification scores yet. Run HARP compute or sync artifacts")
 
     meta = VERIFY_PARAMETERS.get(parameter, {"label": parameter, "unit": "", "category": "continuous"})
     return {"parameter": parameter, "meta": meta, "scores": _scores_to_list(df), "method": "harp"}
@@ -688,8 +695,8 @@ def station_detail(
                 "method": m,
                 "source": "metplus",
                 "note": (
-                    "Tab Detail Stasiun untuk METplus grid/FSS/MODE belum punya time-series per stasiun. "
-                    "Pilih metode <strong>METplus — PointStat</strong> (atau HARP) untuk melihat detail stasiun."
+                    "Station detail for METplus GridStat, FSS, and MODE does not include a per-station time series yet. "
+                    "Choose <strong>METplus PointStat</strong> or HARP to inspect station detail."
                 ),
             }
 
@@ -714,8 +721,8 @@ def station_detail(
             "method": "metplus_point",
             "source": "metplus-pointstat-mpr",
             "note": (
-                f"PointStat MPR: InaNWP vs Soft/Sinoptik BMKG — parameter {meta.get('label', param)} "
-                "(seluruh lead H+3…H+72 per init)."
+                f"PointStat matched pairs: InaNWP vs BMKG Soft or Sinoptik for {meta.get('label', param)} "
+                "(leads H+3 to H+72 per init)."
             ),
         }
 
@@ -748,7 +755,7 @@ def station_detail(
                 "obs": payload["obs"],
                 "inits": payload["inits"],
                 "source": "f32",
-                "note": "Satu garis per init cycle (D+0→D+7). Bandingkan pola init berbeda; area kosong = tidak ada run.",
+                "note": "One line per init cycle (D+0 to D+7). Compare different inits. Empty stretches mean no run.",
             }
         series = hs.station_series(station_id, parameter, model_list, lt, date_from, date_to)
         return {
@@ -762,7 +769,7 @@ def station_detail(
             "archive_start": series_archive_start().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "series": series,
             "source": "f32",
-            "note": "Gap pada garis model = tidak ada forecast (model tidak running) pada valid time itu.",
+            "note": "Gaps on a model line mean no forecast at that valid time.",
         }
 
     st = get_stations()
@@ -809,7 +816,7 @@ def metplus_map_file(valid: str, filename: str):
     from fastapi.responses import FileResponse
 
     if filename not in ("fcst.png", "obs.png", "diff.png", "meta.json"):
-        raise HTTPException(status_code=400, detail="file tidak diizinkan")
+        raise HTTPException(status_code=400, detail="file not allowed")
     root = Path(METPLUS_DATA_DIR)
     candidates = [
         root / "maps" / valid / filename,
@@ -819,7 +826,7 @@ def metplus_map_file(valid: str, filename: str):
         if path.is_file():
             media = "image/png" if filename.endswith(".png") else "application/json"
             return FileResponse(path, media_type=media)
-    raise HTTPException(status_code=404, detail="map tidak ditemukan")
+    raise HTTPException(status_code=404, detail="map not found")
 
 
 if __name__ == "__main__":
