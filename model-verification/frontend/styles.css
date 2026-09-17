@@ -41,6 +41,53 @@ header h1 { margin: 0; font-size: 1.35rem; color: var(--accent); font-weight: 70
   line-height: 1.35;
 }
 
+.metplus-sub {
+  margin-top: 0.55rem;
+}
+.metplus-sub .sub-label {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+.metplus-score-panel {
+  margin: 0.75rem 0 1rem;
+  padding: 0.85rem 1rem;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.metplus-score-panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+  color: var(--accent);
+}
+.metplus-score-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.metplus-score-panel th,
+.metplus-score-panel td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+}
+.metplus-score-panel th { color: var(--muted); font-weight: 600; }
+.metplus-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.85rem;
+}
+.metplus-kpis .kpi-mini {
+  background: var(--accent-light);
+  border-radius: 6px;
+  padding: 0.5rem 0.65rem;
+}
+.metplus-kpis .kpi-mini .v { font-size: 1.15rem; font-weight: 700; color: var(--accent); }
+.metplus-kpis .kpi-mini .l { font-size: 0.75rem; color: var(--muted); }
+
 .spatial-gallery {
   display: flex;
   flex-direction: column;

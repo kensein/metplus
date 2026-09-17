@@ -30,13 +30,15 @@ async def fetch_sinoptik_chunk(
     date_to: str,
     station_wmo_ids: list[str] | None = None,
     parameter_names: list[str] | None = None,
+    data_type: str = "sinoptik",
 ) -> list[dict[str, Any]]:
     """
     POST /api/v21/export/observation/by-station/query
     Sesuai API Export Sinoptik (search api).pptx slide 5-6.
+    data_type: "sinoptik" (default, pola monas) atau "soft" bila endpoint Soft aktif.
     """
     body = {
-        "data_type": "sinoptik",
+        "data_type": data_type or "sinoptik",
         "parameter_names": parameter_names or ["*"],
         "station_wmo_ids": station_wmo_ids or ["*"],
         "date_from": date_from,
@@ -48,7 +50,12 @@ async def fetch_sinoptik_chunk(
     resp = await _request_with_retry("POST", url, json=body)
 
     if resp.status_code >= 400:
-        raise BMKGAuthError(f"Export sinoptik gagal HTTP {resp.status_code}: {resp.text[:400]}")
+        # Soft endpoint kadang beda nama — fallback ke sinoptik (pola monas yang sudah clear)
+        if data_type and data_type.lower() != "sinoptik":
+            body["data_type"] = "sinoptik"
+            resp = await _request_with_retry("POST", url, json=body)
+        if resp.status_code >= 400:
+            raise BMKGAuthError(f"Export obs gagal HTTP {resp.status_code}: {resp.text[:400]}")
 
     data = resp.json()
     return _parse_sinoptik_response(data)

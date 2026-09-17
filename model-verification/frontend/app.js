@@ -48,10 +48,19 @@ let stationDetailCache = { key: '', data: null };
 let leadPlayTimer = null;
 const LEAD_PLAY_MS = 800;
 let currentMethod = 'harp';
+let currentEngine = 'harp'; // harp | metplus (top-level UI)
 
-function selectedMethod() {
+function selectedEngine() {
   const el = document.getElementById('methodSelect');
-  return (el && el.value) || currentMethod || 'harp';
+  return (el && el.value) || currentEngine || 'harp';
+}
+
+/** Internal API method id: harp | metplus | metplus_point | metplus_fss | metplus_mode */
+function selectedMethod() {
+  const engine = selectedEngine();
+  if (engine === 'harp') return 'harp';
+  const sub = document.getElementById('metplusSubmethod');
+  return (sub && sub.value) || 'metplus';
 }
 
 function isMetplusMethod(m = selectedMethod()) {
@@ -61,6 +70,26 @@ function isMetplusMethod(m = selectedMethod()) {
 function methodQ(extra = '') {
   const q = `method=${encodeURIComponent(selectedMethod())}`;
   return extra ? `${q}&${extra.replace(/^\?|&/, '')}` : q;
+}
+
+function syncMethodUiFromApi(methodId) {
+  const m = String(methodId || 'harp').toLowerCase();
+  const engineSel = document.getElementById('methodSelect');
+  const subSel = document.getElementById('metplusSubmethod');
+  if (m === 'harp') {
+    if (engineSel) engineSel.value = 'harp';
+    currentEngine = 'harp';
+    currentMethod = 'harp';
+  } else {
+    if (engineSel) engineSel.value = 'metplus';
+    currentEngine = 'metplus';
+    if (subSel) {
+      const ok = [...subSel.options].some(o => o.value === m);
+      subSel.value = ok ? m : 'metplus';
+    }
+    currentMethod = selectedMethod();
+  }
+  applyMethodUi();
 }
 
 async function api(path, opts = {}) {
@@ -159,30 +188,40 @@ async function loadPublicConfig() {
     const cfg = await api('/api/config/public');
     cartoApiKey = (cfg.carto_api_key || '').trim();
     if (stationMap) stationMap.setCartoKey(cartoApiKey);
-    if (cfg.default_method) {
-      currentMethod = cfg.default_method;
-      const sel = document.getElementById('methodSelect');
-      if (sel) sel.value = cfg.default_method;
-    }
-    applyMethodUi();
+    syncMethodUiFromApi(cfg.default_method || 'harp');
   } catch (e) {
     console.warn('public config', e);
+    applyMethodUi();
   }
 }
 
 function applyMethodUi() {
+  const engine = selectedEngine();
   const m = selectedMethod();
+  currentEngine = engine;
   currentMethod = m;
   const hint = document.getElementById('methodHint');
   const lt = document.getElementById('leadTime');
+  const subWrap = document.getElementById('metplusSubWrap');
+  if (subWrap) subWrap.hidden = engine !== 'metplus';
   const hints = {
-    metplus: 'METplus GridStat: skor grid vs GSMAP (H+3…H+72), peta spasial.',
+    metplus: 'METplus GridStat: skor grid vs GSMAP (H+3…H+72), peta spasial fcst/obs/diff.',
     metplus_point: 'METplus PointStat: InaNWP vs GSMAP di seluruh stasiun BMKG (precip 3 jam).',
-    metplus_fss: 'METplus FSS: Fractions Skill Score (neighborhood widths 1…11).',
+    metplus_fss: 'METplus FSS: Fractions Skill Score neighborhood vs GSMAP (H+3…H+72).',
     metplus_mode: 'METplus MODE: object-based verification objek hujan vs GSMAP.',
     harp: 'HARP: verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik.',
   };
   if (hint) hint.textContent = hints[m] || hints.harp;
+  const spatialHint = document.getElementById('spatialHint');
+  if (spatialHint) {
+    spatialHint.textContent = m === 'metplus_fss'
+      ? 'Output FSS (neighborhood) — skor vs lead time. Peta GridStat tetap di bawah bila tersedia.'
+      : m === 'metplus_mode'
+        ? 'Output MODE (object-based) — interest & jumlah objek vs lead. Peta GridStat di bawah bila tersedia.'
+        : m === 'metplus_point'
+          ? 'PointStat: skor titik stasiun. Peta spasial grid hanya untuk GridStat.'
+          : 'Peta pasangan grid METplus (fcst / obs / selisih).';
+  }
   if (isMetplusMethod(m)) {
     maxLeadTime = 72;
     if (lt) { lt.max = 72; lt.step = 3; if (+lt.value > 72) lt.value = 12; }
@@ -504,7 +543,7 @@ function bindEvents() {
     });
   });
 
-  document.getElementById('methodSelect')?.addEventListener('change', async () => {
+  async function onMethodChanged() {
     applyMethodUi();
     const metricEl = document.getElementById('scoreMetric');
     if (metricEl) {
@@ -514,17 +553,18 @@ function bindEvents() {
     }
     mapBulkCache.key = '';
     stationDetailCache.key = '';
-    // clear sticky error banners from previous method
     document.querySelectorAll('.panel .error').forEach(el => el.remove());
     try {
       await loadModelSources();
-      await reloadParameters();  // MUST reload /api/parameters?method=… (bukan hanya refresh options)
+      await reloadParameters();
       await loadCycles();
       await refreshAll();
     } catch (e) {
       console.warn('method switch', e);
     }
-  });
+  }
+  document.getElementById('methodSelect')?.addEventListener('change', onMethodChanged);
+  document.getElementById('metplusSubmethod')?.addEventListener('change', onMethodChanged);
 
   ['parameter', 'initCycle'].forEach(id => document.getElementById(id).addEventListener('change', () => {
     mapBulkCache.key = '';
@@ -612,7 +652,9 @@ async function loadOverview() {
   }
   const lt = document.getElementById('leadTime').value;
   const init = selectedInitTime();
-  const rankQ = methodQ(`models=${modelsQuery()}&score=rmse${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
+  const method = selectedMethod();
+  const scoreMetric = method === 'metplus_fss' ? 'fss' : (method === 'metplus_mode' ? 'ets' : 'rmse');
+  const rankQ = methodQ(`models=${modelsQuery()}&score=${scoreMetric}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
 
   let ranking = { ranking: [] };
   let scores = { scores: [] };
@@ -625,7 +667,6 @@ async function loadOverview() {
   try {
     scores = await api(`/api/verification/scores?${scoresQuery(`&lead_time=${lt}`)}`);
   } catch (e) {
-    // Jangan gagalkan ranking hanya karena lead tertentu kosong
     console.warn('scores lead', lt, e);
     try {
       scores = await api(`/api/verification/scores?${scoresQuery()}`);
@@ -635,26 +676,28 @@ async function loadOverview() {
   }
 
   const rows = ranking.ranking || [];
+  const metricKey = ranking.score_metric || scoreMetric;
   if (!rows.length) {
     if (cards) cards.innerHTML = '<em>Belum ada ranking untuk metode/model ini.</em>';
   } else {
     cards.innerHTML = rows.map(r => {
-      const rmse = r.mean_rmse ?? r.mean_score;
-      const rmseTxt = (typeof rmse === 'number' && Number.isFinite(rmse)) ? rmse.toFixed(3) : '—';
+      const mean = r.mean_score ?? r.mean_rmse;
+      const meanTxt = (typeof mean === 'number' && Number.isFinite(mean)) ? mean.toFixed(3) : '—';
       const maeTxt = (typeof r.mean_mae === 'number') ? r.mean_mae.toFixed(3) : null;
       const biasTxt = (typeof r.mean_bias === 'number') ? r.mean_bias.toFixed(3) : null;
+      const metricLabel = (r.metric || metricKey || 'rmse').toUpperCase();
       return `<div class="rank-card rank-${r.rank || 1}">
         <div class="rank-num">#${r.rank || 1}</div>
         <div class="model-name">${r.model} ${modelBadge(r.model)}</div>
-        <div class="metric">Mean RMSE: <strong>${rmseTxt}</strong>${maeTxt != null ? ` · MAE: ${maeTxt}` : ''}</div>
-        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Metode: ${selectedMethod().toUpperCase()}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
+        <div class="metric">Mean ${metricLabel}: <strong>${meanTxt}</strong>${maeTxt != null ? ` · MAE: ${maeTxt}` : ''}</div>
+        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Metode: ${methodLabel(method)}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
       </div>`;
     }).join('');
   }
 
   rankingChart?.setBar({
-    title: `Ranking ${selectedMethod().toUpperCase()} — Mean ${rows[0]?.metric?.toUpperCase?.() || 'RMSE'}`,
-    yLabel: rows[0]?.metric || 'Mean score',
+    title: `Ranking ${methodLabel(method)} — Mean ${(rows[0]?.metric || metricKey || 'rmse').toUpperCase()}`,
+    yLabel: rows[0]?.metric || metricKey || 'Mean score',
     labels: rows.map(r => r.model),
     values: rows.map(r => {
       const v = r.mean_score ?? r.mean_rmse ?? 0;
@@ -667,35 +710,127 @@ async function loadOverview() {
   const scoreRows = scores.scores || [];
   if (kpis) {
     kpis.innerHTML = scoreRows.length
-      ? scoreRows.map(s => `
+      ? scoreRows.map(s => {
+          const primary = method === 'metplus_fss'
+            ? `FSS ${typeof s.fss === 'number' ? s.fss.toFixed(3) : '—'}`
+            : method === 'metplus_mode'
+              ? `Interest ${typeof s.total_interest === 'number' ? s.total_interest.toFixed(3) : (typeof s.ets === 'number' ? s.ets.toFixed(3) : '—')}`
+              : `RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '—'}`;
+          return `
         <div class="kpi">
           <div class="label">${s.model} · ${formatLeadTime(s.lead_time)}</div>
-          <div class="value">RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '—'}</div>
+          <div class="value">${primary}</div>
           <div class="label">Bias ${typeof s.bias === 'number' ? s.bias.toFixed(2) : '—'} · MAE ${typeof s.mae === 'number' ? s.mae.toFixed(2) : '—'} · CSI ${typeof s.csi === 'number' ? s.csi.toFixed(2) : '—'} · N=${s.n_cases ?? '—'}</div>
-        </div>`).join('')
+        </div>`;
+        }).join('')
       : '<em class="hint">Tidak ada skor untuk lead time ini — geser lead atau buka tab Scores vs Lead Time.</em>';
+  }
+}
+
+function methodLabel(m) {
+  const map = {
+    harp: 'HARP',
+    metplus: 'METplus GridStat',
+    metplus_point: 'METplus PointStat',
+    metplus_fss: 'METplus FSS',
+    metplus_mode: 'METplus MODE',
+  };
+  return map[m] || String(m || '').toUpperCase();
+}
+
+async function renderMetplusScorePanel(method) {
+  const panel = document.getElementById('metplusScorePanel');
+  if (!panel) return;
+  if (method !== 'metplus_fss' && method !== 'metplus_mode') {
+    panel.hidden = true;
+    panel.innerHTML = '';
+    return;
+  }
+  panel.hidden = false;
+  try {
+    const data = await api(`/api/verification/scores?${scoresQuery()}`);
+    const rows = (data.scores || []).slice().sort((a, b) => a.lead_time - b.lead_time);
+    if (!rows.length) {
+      panel.innerHTML = `<em>Belum ada skor ${methodLabel(method)}. Pastikan pipeline DPU sudah push series_fss / series_mode.</em>`;
+      return;
+    }
+    if (method === 'metplus_fss') {
+      const meanFss = rows.reduce((s, r) => s + (r.fss || 0), 0) / rows.length;
+      panel.innerHTML = `
+        <h3>FSS (Fractions Skill Score) — InaNWP vs GSMAP</h3>
+        <div class="metplus-kpis">
+          <div class="kpi-mini"><div class="v">${meanFss.toFixed(3)}</div><div class="l">Mean FSS (H+3…H+72)</div></div>
+          <div class="kpi-mini"><div class="v">${rows.length}</div><div class="l">Lead points</div></div>
+          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '—'}</div><div class="l">Init cycle</div></div>
+        </div>
+        <table>
+          <thead><tr><th>Lead</th><th>Valid</th><th>FSS</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>
+              <td>${formatLeadTime(r.lead_time)}</td>
+              <td>${r.valid || '—'}</td>
+              <td><strong>${typeof r.fss === 'number' ? r.fss.toFixed(4) : '—'}</strong></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    } else {
+      const meanI = rows.reduce((s, r) => s + (r.total_interest ?? r.ets ?? 0), 0) / rows.length;
+      const meanObj = rows.reduce((s, r) => s + (r.n_cases || 0), 0) / rows.length;
+      panel.innerHTML = `
+        <h3>MODE (object-based) — InaNWP vs GSMAP</h3>
+        <div class="metplus-kpis">
+          <div class="kpi-mini"><div class="v">${meanI.toFixed(3)}</div><div class="l">Mean total interest</div></div>
+          <div class="kpi-mini"><div class="v">${meanObj.toFixed(0)}</div><div class="l">Mean matched pairs</div></div>
+          <div class="kpi-mini"><div class="v">${rows[0]?.init_time || '—'}</div><div class="l">Init cycle</div></div>
+        </div>
+        <table>
+          <thead><tr><th>Lead</th><th>Valid</th><th>Interest</th><th>Matched</th></tr></thead>
+          <tbody>
+            ${rows.map(r => `<tr>
+              <td>${formatLeadTime(r.lead_time)}</td>
+              <td>${r.valid || '—'}</td>
+              <td><strong>${typeof (r.total_interest ?? r.ets) === 'number' ? (r.total_interest ?? r.ets).toFixed(4) : '—'}</strong></td>
+              <td>${r.n_cases ?? '—'}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>`;
+    }
+  } catch (e) {
+    panel.innerHTML = `<em>Gagal memuat skor ${methodLabel(method)}: ${e.message}</em>`;
   }
 }
 
 async function loadSpatial() {
   const gal = document.getElementById('spatialGallery');
   if (!gal) return;
-  if (!isMetplusMethod() || selectedMethod() === 'metplus_point') {
-    gal.innerHTML = selectedMethod() === 'metplus_point'
-      ? '<em>PointStat memakai seluruh stasiun BMKG — lihat tab Overview / Scores. Peta spasial grid tersedia di metode METplus — spasial / grid.</em>'
-      : '<em>Pilih metode <strong>METplus — spasial / grid</strong> untuk melihat peta spasial.</em>';
+  const method = selectedMethod();
+  await renderMetplusScorePanel(method);
+
+  if (!isMetplusMethod() || method === 'metplus_point') {
+    gal.innerHTML = method === 'metplus_point'
+      ? '<em>PointStat memakai seluruh stasiun BMKG — lihat tab Overview / Scores / Detail Stasiun.</em>'
+      : '<em>Pilih metode <strong>METplus</strong> (GridStat / FSS / MODE) untuk melihat output spasial.</em>';
     return;
   }
+
+  // FSS/MODE: skor panel is primary; still show GridStat maps as context when available
   const model = selectedModels()[0] || 'InaNWP';
   try {
     const data = await api(`/api/metplus/spatial?model=${encodeURIComponent(model)}`);
     const maps = data.maps || [];
     if (!maps.length) {
-      gal.innerHTML = '<em>Belum ada peta METplus. Jalankan pipeline DPU lalu sync maps/.</em>';
+      if (method === 'metplus') {
+        gal.innerHTML = '<em>Belum ada peta METplus. Jalankan pipeline DPU lalu sync maps/.</em>';
+      } else {
+        gal.innerHTML = '<em class="hint">Tidak ada peta GridStat pendamping — skor FSS/MODE di atas sudah dari artifact DPU.</em>';
+      }
       return;
     }
     const latest = maps.slice(-6).reverse();
-    gal.innerHTML = latest.map(m => {
+    const caption = method === 'metplus'
+      ? ''
+      : `<p class="hint">Peta GridStat (konteks) — skor ${methodLabel(method)} ada di panel atas.</p>`;
+    gal.innerHTML = caption + latest.map(m => {
       const fcst = m.files['fcst.png'] ? `${API}/api/metplus/maps/${m.valid}/fcst.png` : '';
       const obs = m.files['obs.png'] ? `${API}/api/metplus/maps/${m.valid}/obs.png` : '';
       const diff = m.files['diff.png'] ? `${API}/api/metplus/maps/${m.valid}/diff.png` : '';
@@ -746,7 +881,7 @@ async function loadScores() {
     };
   });
   scoreChart?.setLines({
-    title: `${metricLabel} vs Lead Time — ${selectedMethod().toUpperCase()} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
+    title: `${metricLabel} vs Lead Time — ${methodLabel(selectedMethod())} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
     xLabel: 'Lead Time (jam)',
     yLabel: metricLabel,
     xNumeric: true,

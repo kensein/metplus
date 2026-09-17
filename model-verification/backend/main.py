@@ -180,41 +180,54 @@ def health() -> dict[str, Any]:
 
 @app.get("/api/methods")
 def list_methods() -> dict[str, Any]:
-    catalog = {
-        "harp": {
-            "id": "harp",
-            "label": "HARP — titik stasiun",
-            "domain": "point",
-            "description": "Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik",
-        },
-        "metplus": {
+    """Top-level engines: HARP + METplus. METplus children = GridStat/PointStat/FSS/MODE."""
+    metplus_children = [
+        {
             "id": "metplus",
-            "label": "METplus — spasial / grid",
+            "label": "GridStat (spasial)",
             "domain": "spatial",
             "description": "GridStat InaNWP vs GSMAP — skor H+3…H+72 & peta pasangan grid",
         },
-        "metplus_point": {
+        {
             "id": "metplus_point",
-            "label": "METplus — PointStat (semua stasiun ID)",
+            "label": "PointStat (stasiun)",
             "domain": "point",
-            "description": "PointStat InaNWP vs GSMAP di seluruh stasiun BMKG (param precip 3 jam, keluarga HARP rainfall)",
+            "description": "PointStat InaNWP vs GSMAP di seluruh stasiun BMKG (precip 3 jam)",
         },
-        "metplus_fss": {
+        {
             "id": "metplus_fss",
-            "label": "METplus — FSS (neighborhood)",
+            "label": "FSS (neighborhood)",
             "domain": "spatial",
             "description": "Fractions Skill Score / neighborhood verification (GridStat NBR*)",
         },
-        "metplus_mode": {
+        {
             "id": "metplus_mode",
-            "label": "METplus — MODE (object-based)",
+            "label": "MODE (object-based)",
             "domain": "object",
-            "description": "Method for Object-Based Diagnostic Evaluation — objek hujan vs GSMAP",
+            "description": "Object-based verification objek hujan vs GSMAP",
         },
-    }
+    ]
+    engines = [
+        {
+            "id": "harp",
+            "label": "HARP",
+            "domain": "point",
+            "description": "Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik",
+            "children": [],
+        },
+        {
+            "id": "metplus",
+            "label": "METplus",
+            "domain": "spatial",
+            "description": "GridStat / PointStat / FSS / MODE vs GSMAP (pipeline DPU)",
+            "children": [c for c in metplus_children if c["id"] in METHODS or c["id"] == "metplus"],
+        },
+    ]
     return {
-        "methods": [catalog[m] for m in METHODS if m in catalog],
+        "engines": engines,
+        "methods": METHODS,  # internal ids still accepted by ?method=
         "default": DEFAULT_METHOD,
+        "ui_methods": ["harp", "metplus"],
     }
 
 
@@ -404,6 +417,7 @@ def public_config() -> dict[str, Any]:
         "base_path": BASE_PATH,
         "default_method": DEFAULT_METHOD,
         "methods": METHODS,
+        "ui_methods": ["harp", "metplus"],
         "app_name": "Model Verification",
     }
 
@@ -523,7 +537,7 @@ def verification_ranking(
     if _is_metplus(m):
         payload = ms.ranking_payload(model_list, init_time=init_time, score=score, method=m)
         if not payload:
-            raise HTTPException(status_code=404, detail=f"Belum ada data ranking {m}")
+            return {"score_metric": score, "init_time": init_time, "method": m, "ranking": []}
         return payload
     if USE_F32_STORE:
         payload = hs.ranking_payload(model_list, init_time=init_time, score=score)
@@ -531,7 +545,8 @@ def verification_ranking(
         from backend.services.verification_cache import get_or_build_ranking
         payload = get_or_build_ranking(model_list, init_time=init_time, score=score)
     if not payload:
-        raise HTTPException(status_code=404, detail="Belum ada data ranking")
+        # Jangan 404 keras — UI tampilkan empty state (hindari banner merah "Belum ada data ranking")
+        return {"score_metric": score, "init_time": init_time, "ranking": [], "method": "harp"}
     payload["method"] = "harp"
     return payload
 

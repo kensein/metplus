@@ -23,13 +23,19 @@
       <section>
         <h3>Metode Verifikasi</h3>
         <select id="methodSelect" aria-label="Metode verifikasi">
-          <option value="harp">HARP — titik stasiun</option>
-          <option value="metplus">METplus — spasial / grid</option>
-          <option value="metplus_point">METplus — PointStat (stasiun ID)</option>
-          <option value="metplus_fss">METplus — FSS (neighborhood)</option>
-          <option value="metplus_mode">METplus — MODE (object-based)</option>
+          <option value="harp">HARP</option>
+          <option value="metplus">METplus</option>
         </select>
-        <p id="methodHint" class="hint">Pilih engine: HARP atau METplus (grid / titik / FSS / MODE).</p>
+        <div id="metplusSubWrap" class="metplus-sub" hidden>
+          <label class="sub-label" for="metplusSubmethod">Jenis METplus</label>
+          <select id="metplusSubmethod" aria-label="Jenis verifikasi METplus">
+            <option value="metplus">GridStat (spasial)</option>
+            <option value="metplus_point">PointStat (stasiun)</option>
+            <option value="metplus_fss">FSS (neighborhood)</option>
+            <option value="metplus_mode">MODE (object-based)</option>
+          </select>
+        </div>
+        <p id="methodHint" class="hint">HARP = titik stasiun BMKG Soft. METplus = GridStat / PointStat / FSS / MODE vs GSMAP.</p>
       </section>
 
       <section>
@@ -109,7 +115,8 @@
       </div>
 
       <div id="spatial" class="panel">
-        <p class="hint">Peta pasangan grid METplus (fcst / obs / selisih). Gunakan metode METplus.</p>
+        <p id="spatialHint" class="hint">Peta pasangan grid METplus (fcst / obs / selisih). Pilih METplus → GridStat.</p>
+        <div id="metplusScorePanel" class="metplus-score-panel" hidden></div>
         <div id="spatialGallery" class="spatial-gallery"></div>
       </div>
 
