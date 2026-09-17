@@ -693,10 +693,15 @@ def aggregate_scores_over_inits(df: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["lead_time", "model"]).reset_index(drop=True)
 
 
-def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse") -> dict[str, Any]:
+def ranking_payload(
+    models: list[str],
+    init_time: str | None,
+    score: str = "rmse",
+    parameter: str | None = None,
+) -> dict[str, Any]:
     from backend.services.verification import VerificationResult, compute_ranking
 
-    df = scores_frame(models=models, init_time=init_time)
+    df = scores_frame(models=models, parameter=parameter, init_time=init_time)
     if df.empty:
         return {}
     results = [
@@ -708,7 +713,12 @@ def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse
         )
         for _, r in df.iterrows()
     ]
-    return {"score_metric": score, "init_time": init_time, "ranking": compute_ranking(results, score=score)}
+    return {
+        "score_metric": score,
+        "init_time": init_time,
+        "parameter": parameter,
+        "ranking": compute_ranking(results, score=score),
+    }
 
 
 def _nan(x: Any) -> float:

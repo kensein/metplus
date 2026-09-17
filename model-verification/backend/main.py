@@ -531,6 +531,7 @@ def verification_ranking(
     init_time: str | None = None,
     score: str = Query("rmse"),
     method: str | None = Query(None),
+    parameter: str | None = Query(None),
 ) -> dict[str, Any]:
     model_list = [m.strip() for m in models.split(",") if m.strip()]
     m = _method(method)
@@ -540,13 +541,13 @@ def verification_ranking(
             return {"score_metric": score, "init_time": init_time, "method": m, "ranking": []}
         return payload
     if USE_F32_STORE:
-        payload = hs.ranking_payload(model_list, init_time=init_time, score=score)
+        payload = hs.ranking_payload(model_list, init_time=init_time, score=score, parameter=parameter)
     else:
         from backend.services.verification_cache import get_or_build_ranking
         payload = get_or_build_ranking(model_list, init_time=init_time, score=score)
     if not payload:
         # Jangan 404 keras — UI tampilkan empty state (hindari banner merah "Belum ada data ranking")
-        return {"score_metric": score, "init_time": init_time, "ranking": [], "method": "harp"}
+        return {"score_metric": score, "init_time": init_time, "ranking": [], "method": "harp", "parameter": parameter}
     payload["method"] = "harp"
     return payload
 

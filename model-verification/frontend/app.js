@@ -69,7 +69,9 @@ function isMetplusMethod(m = selectedMethod()) {
 
 function methodQ(extra = '') {
   const q = `method=${encodeURIComponent(selectedMethod())}`;
-  return extra ? `${q}&${extra.replace(/^\?|&/, '')}` : q;
+  // Hanya buang ?/& di AWAL extra — jangan hapus & di tengah (bug: models=InaNWPscore=rmse)
+  const rest = String(extra || '').replace(/^[?&]+/, '');
+  return rest ? `${q}&${rest}` : q;
 }
 
 function syncMethodUiFromApi(methodId) {
@@ -658,7 +660,12 @@ async function loadOverview() {
   const init = selectedInitTime();
   const method = selectedMethod();
   const scoreMetric = method === 'metplus_fss' ? 'fss' : (method === 'metplus_mode' ? 'ets' : 'rmse');
-  const rankQ = methodQ(`models=${modelsQuery()}&score=${scoreMetric}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
+  const param = document.getElementById('parameter')?.value || '';
+  const rankQ = methodQ(
+    `models=${modelsQuery()}&score=${scoreMetric}`
+    + (param ? `&parameter=${encodeURIComponent(param)}` : '')
+    + (init ? `&init_time=${encodeURIComponent(init)}` : '')
+  );
 
   let ranking = { ranking: [] };
   let scores = { scores: [] };
