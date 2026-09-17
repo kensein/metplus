@@ -194,6 +194,54 @@ function safeDataPath(rel) {
   return abs;
 }
 
+function listValidDirs() {
+  const root = path.join(DATA_DIR, "gridstat");
+  if (!fs.existsSync(root)) return [];
+  return fs.readdirSync(root)
+    .filter((d) => fs.statSync(path.join(root, d)).isDirectory())
+    .sort()
+    .reverse();
+}
+
+function filterByRun(items, run, getDir) {
+  if (!run) return items;
+  return items.filter((item) => getDir(item) === run);
+}
+
+function buildRunSummaries() {
+  const dirs = listValidDirs();
+  const allRecords = findStatFiles().flatMap(parseStatFile);
+  const pairs = findPairsFiles();
+  const maps = listMaps();
+  return dirs.map((dir) => {
+    const records = allRecords.filter((r) => r.valid_dir === dir);
+    const cnt = records.find((r) => r.line_type === "CNT");
+    const hasStat = records.length > 0;
+    const hasPairs = pairs.some((f) => path.basename(path.dirname(f)) === dir);
+    const hasMaps = maps.some((m) => m.valid_dir === dir);
+    const meta = readJsonSafe(path.join("maps", dir, "meta.json"));
+    return {
+      run: dir,
+      valid: meta?.valid || dir,
+      status: hasStat ? "READY" : "NO_STAT",
+      matched_pairs: cnt?.total ?? null,
+      rmse: cnt?.rmse ?? null,
+      me: cnt?.me ?? null,
+      has_stat: hasStat,
+      has_pairs: hasPairs,
+      has_maps: hasMaps,
+      n_records: records.length,
+    };
+  });
+}
+
+function resolveRun(queryRun) {
+  const dirs = listValidDirs();
+  if (!dirs.length) return null;
+  if (queryRun && dirs.includes(queryRun)) return queryRun;
+  return dirs[0];
+}
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true, service: "verifikasi-inanwp-api", data_dir: DATA_DIR });
 });
@@ -202,27 +250,43 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, service: "verifikasi-inanwp-api" });
 });
 
-app.get("/api/summary", (_req, res) => {
+app.get("/api/runs", (_req, res) => {
+  const runs = buildRunSummaries();
+  res.json({
+    count: runs.length,
+    latest: runs[0]?.run || null,
+    auto_update: false,
+    note: "Otomasi harian belum aktif. Dashboard hanya membaca output METplus yang sudah di-sync ke webpsi.",
+    runs,
+  });
+});
+
+app.get("/api/summary", (req, res) => {
+  const run = resolveRun(String(req.query.run || ""));
   const summary = readJsonSafe("dashboard/summary.json") || readJsonSafe("summary.json");
-  const statFiles = findStatFiles();
-  const pairsFiles = findPairsFiles();
+  const statFiles = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
+  const pairsFiles = filterByRun(findPairsFiles(), run, (f) => path.basename(path.dirname(f)));
   const records = statFiles.flatMap(parseStatFile);
   const cnt = records.filter((r) => r.line_type === "CNT");
   const cts = records.filter((r) => r.line_type === "CTS");
-  const maps = listMaps();
+  const maps = listMaps().filter((m) => !run || m.valid_dir === run);
+  const mapMeta = maps[0]?.meta;
+  const useGlobalSummary = !run || (summary?.valid && String(summary.valid).includes(String(run).slice(0, 8)));
   res.json({
-    generated_at: summary?.generated_at || new Date().toISOString(),
+    run,
+    generated_at: (useGlobalSummary && summary?.generated_at) || new Date().toISOString(),
     model: summary?.model || "INANWP",
     observation: summary?.observation || "GSMAP NRT",
-    status: summary?.status || (statFiles.length ? "READY" : "NO_DATA"),
-    matched_pairs: summary?.matched_pairs || cnt[0]?.total || null,
-    valid: summary?.valid || (statFiles[0] ? path.basename(path.dirname(statFiles[0])) : null),
+    status: (useGlobalSummary && summary?.status) || (statFiles.length ? "READY" : "NO_DATA"),
+    matched_pairs: (useGlobalSummary && summary?.matched_pairs) || cnt[0]?.total || null,
+    valid: mapMeta?.valid || (useGlobalSummary && summary?.valid) || run,
     accum_hours: summary?.accum_hours || 3,
-    note: summary?.note || null,
+    note: (useGlobalSummary && summary?.note) || null,
     n_stat_files: statFiles.length,
     n_pairs_files: pairsFiles.length,
     n_map_sets: maps.length,
     n_records: records.length,
+    n_runs: listValidDirs().length,
     metrics: {
       rmse: cnt[0]?.rmse ?? null,
       me: cnt[0]?.me ?? null,
@@ -239,23 +303,31 @@ app.get("/api/summary", (_req, res) => {
   });
 });
 
-app.get("/api/stats", (_req, res) => {
-  const records = findStatFiles().flatMap(parseStatFile);
-  res.json({ count: records.length, records });
+app.get("/api/stats", (req, res) => {
+  const run = resolveRun(String(req.query.run || ""));
+  const statFiles = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
+  const records = statFiles.flatMap(parseStatFile);
+  res.json({ run, count: records.length, records });
 });
 
-app.get("/api/files", (_req, res) => {
+app.get("/api/files", (req, res) => {
+  const run = resolveRun(String(req.query.run || ""));
   res.json({
+    run,
     data_dir: DATA_DIR,
-    stat_files: findStatFiles().map(fileInfo),
-    pairs_files: findPairsFiles().map(fileInfo),
-    maps: listMaps(),
+    stat_files: filterByRun(findStatFiles().map(fileInfo), run, (f) => f.valid_dir),
+    pairs_files: filterByRun(findPairsFiles().map(fileInfo), run, (f) => f.valid_dir),
+    maps: listMaps().filter((m) => !run || m.valid_dir === run),
     summary_exists: !!(readJsonSafe("dashboard/summary.json") || readJsonSafe("summary.json")),
   });
 });
 
-app.get("/api/maps", (_req, res) => {
-  res.json({ maps: listMaps() });
+app.get("/api/maps", (req, res) => {
+  const run = resolveRun(String(req.query.run || ""));
+  res.json({
+    run,
+    maps: listMaps().filter((m) => !run || m.valid_dir === run),
+  });
 });
 
 app.get("/api/maps/:valid/:file", (req, res) => {
@@ -276,7 +348,8 @@ app.get("/api/download", (req, res) => {
 });
 
 app.get("/api/stat-raw", (req, res) => {
-  const files = findStatFiles();
+  const run = resolveRun(String(req.query.run || ""));
+  const files = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
   if (!files.length) return res.status(404).type("text").send("no .stat files");
   let target = files[0];
   if (req.query.path) {

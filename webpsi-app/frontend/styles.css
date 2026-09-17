@@ -106,7 +106,7 @@ a:hover { text-decoration: underline; }
   box-shadow: 0 12px 30px rgba(0, 82, 163, 0.18);
   margin-bottom: 1.25rem;
 }
-.hero h2 { margin: 0.55rem 0 0.45rem; font-size: 1.55rem; }
+.hero h2 { margin: 0.55rem 0 0; font-size: 1.55rem; }
 .hero p { margin: 0; opacity: 0.95; max-width: 46rem; line-height: 1.55; color: #fff; }
 .hero code {
   background: rgba(255, 255, 255, 0.18);
@@ -115,6 +115,37 @@ a:hover { text-decoration: underline; }
   border-radius: 4px;
   font-size: 0.85em;
 }
+.run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  padding: 0.85rem 1rem;
+}
+.run-bar label { color: var(--bmkg-dark); }
+.run-bar select {
+  min-width: 220px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--bmkg-dark);
+  font-size: 0.95rem;
+}
+.runs-table-active {
+  background: #eef6ff;
+}
+button.linkish {
+  background: none;
+  border: none;
+  color: var(--bmkg-blue);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  font: inherit;
+}
+button.linkish:hover { text-decoration: underline; }
 
 .grid {
   display: grid;

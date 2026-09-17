@@ -34,12 +34,13 @@
         <span class="badge">Peta prakiraan, observasi, selisih</span>
       </div>
       <h2>Dashboard Verifikasi Model InaNWP</h2>
-      <p>
-        Hasil verifikasi InaNWP terhadap GSMAP ditampilkan di sini: skor dari file statistik METplus
-        dan peta spasial pasangan grid (prakiraan, observasi, serta selisihnya).
-        Perhitungan dilakukan di server DPU; dashboard ini hanya menampilkan hasilnya.
-      </p>
     </section>
+
+    <div class="run-bar card panel">
+      <label for="run-select"><strong>Histori verifikasi</strong></label>
+      <select id="run-select" aria-label="Pilih waktu valid verifikasi"></select>
+      <span id="run-count" class="muted"></span>
+    </div>
 
     <div id="status" class="muted" style="margin-bottom:0.8rem">Memuat data…</div>
     <div id="error" hidden class="error"></div>
@@ -49,6 +50,26 @@
       <div class="card"><h3>Waktu Valid</h3><div class="val" id="m-valid">—</div><div class="sub" id="m-accum">—</div></div>
       <div class="card"><h3>Pasangan Grid</h3><div class="val" id="m-pairs">—</div><div class="sub">titik yang dibandingkan</div></div>
       <div class="card"><h3>RMSE</h3><div class="val" id="m-rmse">—</div><div class="sub">mm · skor kontinu</div></div>
+    </section>
+
+    <section class="card panel">
+      <h3>Daftar run tersimpan</h3>
+      <p class="muted">Setiap folder valid di penyimpanan METplus menjadi satu entri histori.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Valid</th>
+              <th>Status</th>
+              <th>Pasangan grid</th>
+              <th>RMSE</th>
+              <th>ME</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="runs-table"></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="card panel">

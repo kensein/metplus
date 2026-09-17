@@ -17,6 +17,8 @@
     },
   };
 
+  let currentRun = null;
+
   function $(id) { return document.getElementById(id); }
 
   function fmt(v, digits) {
@@ -35,16 +37,12 @@
     return (n / (1024 * 1024)).toFixed(2) + " MB";
   }
 
-  /** Parse METplus-ish valid token like 20260615_15Z → readable ID + window. */
   function describeValid(validRaw, accumHours) {
     const raw = String(validRaw || "");
     const m = raw.match(/^(\d{4})(\d{2})(\d{2})[_ ]?(\d{2})Z?$/i);
     const hours = accumHours || 3;
     if (!m) {
-      return {
-        label: raw || "—",
-        windowText: hours + " jam akumulasi",
-      };
+      return { label: raw || "—", windowText: hours + " jam akumulasi" };
     }
     const y = m[1], mo = m[2], d = m[3], hh = parseInt(m[4], 10);
     const end = new Date(Date.UTC(+y, +mo - 1, +d, hh, 0, 0));
@@ -58,15 +56,23 @@
     }
     return {
       label: stamp(end),
-      windowText:
-        "Akumulasi " + hours + " jam: " + stamp(start) + " sampai " + stamp(end),
+      windowText: "Akumulasi " + hours + " jam: " + stamp(start) + " sampai " + stamp(end),
     };
+  }
+
+  function runLabel(run) {
+    const info = describeValid(run.valid || run.run, 3);
+    return info.label + " (" + run.run + ")";
   }
 
   async function getJson(url) {
     const res = await fetch(url, { credentials: "same-origin" });
     if (!res.ok) throw new Error(url + " → HTTP " + res.status);
     return res.json();
+  }
+
+  function q(run) {
+    return run ? ("?run=" + encodeURIComponent(run)) : "";
   }
 
   function sortImages(images) {
@@ -77,11 +83,52 @@
     });
   }
 
+  function fillRunSelect(runsPayload) {
+    const sel = $("run-select");
+    const runs = runsPayload.runs || [];
+    sel.innerHTML = runs.map(function (r) {
+      return "<option value='" + r.run + "'" +
+        (r.run === currentRun ? " selected" : "") +
+        ">" + runLabel(r) + "</option>";
+    }).join("");
+    $("run-count").textContent = runs.length
+      ? (runs.length + " run tersimpan" + (runsPayload.auto_update ? "" : " · otomasi harian belum aktif"))
+      : "Belum ada run";
+  }
+
+  function renderRunsTable(runsPayload) {
+    const runs = runsPayload.runs || [];
+    $("runs-table").innerHTML = runs.length
+      ? runs.map(function (r) {
+          const info = describeValid(r.valid || r.run, 3);
+          const active = r.run === currentRun ? " class='runs-table-active'" : "";
+          return "<tr" + active + ">" +
+            "<td><button type='button' class='linkish' data-run='" + r.run + "'>" + info.label + "</button><div class='muted'>" + r.run + "</div></td>" +
+            "<td>" + (r.status || "—") + "</td>" +
+            "<td>" + fmt(r.matched_pairs, 0) + "</td>" +
+            "<td>" + fmt(r.rmse) + "</td>" +
+            "<td>" + fmt(r.me) + "</td>" +
+            "<td>" +
+              (r.has_stat ? "skor " : "") +
+              (r.has_pairs ? "pairs " : "") +
+              (r.has_maps ? "peta" : "") +
+            "</td>" +
+          "</tr>";
+        }).join("")
+      : "<tr><td colspan='6' class='muted'>Belum ada histori. Jalankan METplus di DPU lalu sync ke webpsi.</td></tr>";
+
+    $("runs-table").querySelectorAll("button[data-run]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        selectRun(btn.getAttribute("data-run"));
+      });
+    });
+  }
+
   function renderMaps(maps, summary) {
     const el = $("maps-gallery");
     const explain = $("maps-explain");
     if (!maps || !maps.length || !maps[0].images || !maps[0].images.length) {
-      el.innerHTML = "<p class='muted'>Belum ada peta. Hasilkan dulu dari file pasangan grid NetCDF.</p>";
+      el.innerHTML = "<p class='muted'>Belum ada peta untuk run ini.</p>";
       explain.innerHTML = "";
       return;
     }
@@ -100,8 +147,7 @@
         "<li><strong>Selisih (DIFF)</strong>: FCST dikurangi OBS (mm). Nilai positif berarti prakiraan lebih basah; negatif berarti lebih kering.</li>" +
       "</ul>";
 
-    const images = sortImages(set.images);
-    el.innerHTML = images.map(function (img) {
+    el.innerHTML = sortImages(set.images).map(function (img) {
       const info = MAP_META[img.name] || { label: img.label, blurb: "" };
       return (
         "<figure class='map-card'>" +
@@ -143,7 +189,7 @@
     });
     $("files-table").innerHTML = rows.length
       ? rows.join("")
-      : "<tr><td colspan='5' class='muted'>Belum ada file keluaran METplus di penyimpanan webpsi.</td></tr>";
+      : "<tr><td colspan='5' class='muted'>Tidak ada file untuk run ini.</td></tr>";
   }
 
   function renderCnt(records) {
@@ -198,18 +244,23 @@
       : "<tr><td colspan='5' class='muted'>Tidak ada baris CTC.</td></tr>";
   }
 
-  async function load() {
+  async function loadRun(run) {
     const statusEl = $("status");
     const errEl = $("error");
     try {
-      const [summary, stats, files, raw] = await Promise.all([
-        getJson(API_BASE + "/summary"),
-        getJson(API_BASE + "/stats"),
-        getJson(API_BASE + "/files"),
-        fetch(API_BASE + "/stat-raw", { credentials: "same-origin" }).then(function (r) {
+      const [summary, stats, files, runsPayload, raw] = await Promise.all([
+        getJson(API_BASE + "/summary" + q(run)),
+        getJson(API_BASE + "/stats" + q(run)),
+        getJson(API_BASE + "/files" + q(run)),
+        getJson(API_BASE + "/runs"),
+        fetch(API_BASE + "/stat-raw" + q(run), { credentials: "same-origin" }).then(function (r) {
           return r.ok ? r.text() : Promise.reject(new Error("stat-raw " + r.status));
         }),
       ]);
+
+      currentRun = summary.run || run || runsPayload.latest;
+      fillRunSelect(runsPayload);
+      renderRunsTable(runsPayload);
 
       const validInfo = describeValid(summary.valid, summary.accum_hours || 3);
       $("m-status").textContent = summary.status || "READY";
@@ -227,10 +278,10 @@
       $("stat-raw").textContent = raw;
 
       statusEl.textContent =
-        "Data siap · " +
-        (summary.n_stat_files || 0) + " file skor · " +
+        "Run " + (currentRun || "—") +
+        " · " + (summary.n_stat_files || 0) + " file skor · " +
         (summary.n_pairs_files || 0) + " file pasangan grid · " +
-        (summary.n_map_sets || 0) + " set peta";
+        (runsPayload.count || 0) + " run histori";
       errEl.hidden = true;
     } catch (e) {
       statusEl.textContent = "Gagal memuat API";
@@ -239,5 +290,16 @@
     }
   }
 
-  load();
+  function selectRun(run) {
+    currentRun = run;
+    const sel = $("run-select");
+    if (sel) sel.value = run;
+    loadRun(run);
+  }
+
+  $("run-select").addEventListener("change", function () {
+    selectRun($("run-select").value);
+  });
+
+  loadRun(null);
 })();
