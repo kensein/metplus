@@ -317,8 +317,12 @@ async function loadModelSources() {
       const src = modelSources[cb.value] || 'real';
       badge.textContent = src;
       badge.className = `badge ${src}`;
-      if (src === 'none') cb.checked = false;
-      if (src === 'real' && isMetplusMethod() && cb.value === 'InaNWP') cb.checked = true;
+      if (src === 'none') {
+        cb.checked = false;
+      } else if (src === 'real') {
+        // Pastikan model REAL selalu tercentang (HARP & METplus) agar overview tidak kosong
+        cb.checked = true;
+      }
     });
     refreshParameterOptions();
   } catch (e) { console.warn('model sources', e); }
