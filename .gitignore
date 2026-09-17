@@ -6,3 +6,6 @@ dashboard/.env
 .DS_Store
 .venv/
 venv/
+node_modules/
+webpsi-app/data/metplus/**/*.nc
+webpsi-app/logs/
