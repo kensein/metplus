@@ -13,30 +13,79 @@
       <img src="assets/bmkg-logo.png" alt="Logo BMKG" class="logo" />
       <div>
         <h1>Model Verification</h1>
-        <p>HARP (titik) · METplus (grid / PointStat / FSS / MODE) | Pusat Standardisasi Instrumen MKG</p>
+        <p id="headerSubtitle">Pilih metode verifikasi untuk memulai | Pusat Standardisasi Instrumen MKG</p>
       </div>
     </div>
   </header>
 
-  <div class="layout">
+  <!-- STEP 1: pilih engine -->
+  <section id="flowGate" class="flow-gate" aria-label="Pilih metode verifikasi">
+    <div class="flow-inner">
+      <p class="flow-step">Langkah 1 dari 2</p>
+      <h2>Pilih metode verifikasi</h2>
+      <p class="flow-lead">Satu alur per sesi. Setelah dipilih, dashboard lengkap akan terbuka.</p>
+      <div class="flow-cards">
+        <button type="button" class="flow-card" data-engine="harp" id="pickHarp">
+          <span class="flow-card-kicker">Titik stasiun</span>
+          <span class="flow-card-title">HARP</span>
+          <span class="flow-card-body">Verifikasi titik vs observasi BMKG Soft / Sinoptik. Ranking, skor vs lead, peta stasiun, detail stasiun.</span>
+        </button>
+        <button type="button" class="flow-card" data-engine="metplus" id="pickMetplus">
+          <span class="flow-card-kicker">Grid &amp; objek</span>
+          <span class="flow-card-title">METplus</span>
+          <span class="flow-card-body">Verifikasi spasial / PointStat / FSS / MODE. Pilih dulu sumber observasi (verifikator).</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 2: verifikator METplus -->
+  <section id="verifierGate" class="flow-gate" hidden aria-label="Pilih verifikator METplus">
+    <div class="flow-inner">
+      <p class="flow-step">Langkah 2 dari 2 · METplus</p>
+      <h2>Pilih verifikator (observasi referensi)</h2>
+      <p class="flow-lead">Verifikator menentukan teknik METplus yang tersedia. Model tetap sama: InaNWP, InaCAWO, GFS, IFS.</p>
+      <div class="flow-cards">
+        <button type="button" class="flow-card" data-verifier="gsmap" id="pickGsmap">
+          <span class="flow-card-kicker">Observasi spasial</span>
+          <span class="flow-card-title">GSMAP</span>
+          <span class="flow-card-body">Hujan satelit grid. Membuka teknik <strong>GridStat</strong> (peta fcst/obs/diff), <strong>FSS</strong> (neighborhood), dan <strong>MODE</strong> (object-based).</span>
+        </button>
+        <button type="button" class="flow-card" data-verifier="stations" id="pickStations">
+          <span class="flow-card-kicker">Observasi titik</span>
+          <span class="flow-card-title">Stasiun BMKG</span>
+          <span class="flow-card-body">Seluruh stasiun Indonesia (katalog WMO). Membuka teknik <strong>PointStat</strong> — skor di lokasi stasiun.</span>
+        </button>
+      </div>
+      <button type="button" class="flow-back" id="backToEngine">← Kembali pilih metode</button>
+    </div>
+  </section>
+
+  <div id="appLayout" class="layout" hidden>
     <aside class="sidebar">
-      <section>
-        <h3>Metode Verifikasi</h3>
-        <select id="methodSelect" aria-label="Metode verifikasi">
-          <option value="harp">HARP</option>
-          <option value="metplus">METplus</option>
-        </select>
-        <div id="metplusSubWrap" class="metplus-sub" hidden>
-          <label class="sub-label" for="metplusSubmethod">Jenis METplus</label>
-          <select id="metplusSubmethod" aria-label="Jenis verifikasi METplus">
-            <option value="metplus">GridStat (spasial)</option>
-            <option value="metplus_point">PointStat (stasiun)</option>
-            <option value="metplus_fss">FSS (neighborhood)</option>
-            <option value="metplus_mode">MODE (object-based)</option>
-          </select>
+      <section class="context-section">
+        <div class="context-row">
+          <div>
+            <div class="context-label">Sesi aktif</div>
+            <div id="sessionBadge" class="context-badge">—</div>
+          </div>
+          <button type="button" id="changeMethodBtn" class="ghost-btn">Ganti</button>
         </div>
-        <p id="methodHint" class="hint">HARP = titik stasiun BMKG Soft. METplus = GridStat / PointStat / FSS / MODE vs GSMAP.</p>
+        <p id="methodHint" class="hint"></p>
       </section>
+
+      <section id="techniqueSection" hidden>
+        <h3>Teknik METplus</h3>
+        <select id="metplusSubmethod" aria-label="Teknik METplus">
+          <!-- diisi dinamis dari verifikator -->
+        </select>
+      </section>
+
+      <!-- hidden sync for legacy selectedEngine() -->
+      <select id="methodSelect" hidden aria-hidden="true">
+        <option value="harp">HARP</option>
+        <option value="metplus">METplus</option>
+      </select>
 
       <section>
         <h3>Init Cycle (D-0)</h3>
@@ -73,13 +122,13 @@
     </aside>
 
     <main>
-      <div class="tabs">
-        <button class="tab active" data-tab="overview">Overview & Ranking</button>
-        <button class="tab" data-tab="scores">Scores vs Lead Time</button>
-        <button class="tab" data-tab="map">Peta Stasiun</button>
-        <button class="tab" data-tab="spatial">Peta Spasial (METplus)</button>
-        <button class="tab" data-tab="method">Metode</button>
-        <button class="tab" data-tab="station">Detail Stasiun</button>
+      <div class="tabs" id="mainTabs">
+        <button class="tab active" data-tab="overview" data-engines="harp,metplus">Overview &amp; Ranking</button>
+        <button class="tab" data-tab="scores" data-engines="harp,metplus">Scores vs Lead Time</button>
+        <button class="tab" data-tab="map" data-engines="harp" data-verifiers="">Peta Stasiun</button>
+        <button class="tab" data-tab="spatial" data-engines="metplus" data-verifiers="gsmap">Peta Spasial</button>
+        <button class="tab" data-tab="station" data-engines="harp,metplus" data-verifiers="stations">Detail Stasiun</button>
+        <button class="tab" data-tab="method" data-engines="harp,metplus">Metode</button>
       </div>
 
       <div id="overview" class="panel active">
@@ -115,7 +164,7 @@
       </div>
 
       <div id="spatial" class="panel">
-        <p id="spatialHint" class="hint">Peta pasangan grid METplus (fcst / obs / selisih). Pilih METplus → GridStat.</p>
+        <p id="spatialHint" class="hint">Peta pasangan grid METplus (fcst / obs / selisih).</p>
         <div id="metplusScorePanel" class="metplus-score-panel" hidden></div>
         <div id="spatialGallery" class="spatial-gallery"></div>
       </div>
@@ -146,13 +195,13 @@
           <button type="button" id="chartZoomReset" class="chart-zoom-btn" title="Reset zoom">Reset</button>
         </div>
         <div id="stationChart" class="chart"></div>
-        <div id="stationTable" class="detail-box">Tabel pasangan fcst vs obs per valid time (HARP / METplus PointStat).</div>
+        <div id="stationTable" class="detail-box">Tabel pasangan fcst vs obs per valid time.</div>
       </div>
     </main>
   </div>
 
   <footer class="site-footer">
-    <span id="pipelineStatus">Memuat status pipeline...</span>
+    <span id="pipelineStatus">Pilih metode di atas untuk memulai…</span>
     <span id="dataSource"></span>
   </footer>
 

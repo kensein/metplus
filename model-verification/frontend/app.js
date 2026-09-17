@@ -48,11 +48,29 @@ let stationDetailCache = { key: '', data: null };
 let leadPlayTimer = null;
 const LEAD_PLAY_MS = 800;
 let currentMethod = 'harp';
-let currentEngine = 'harp'; // harp | metplus (top-level UI)
+let currentEngine = null; // null until user picks: harp | metplus
+let currentVerifier = null; // null | gsmap | stations (METplus only)
+let dashboardReady = false;
+const FLOW_STORAGE_KEY = 'mv_flow_v1';
+
+const TECHNIQUES_BY_VERIFIER = {
+  gsmap: [
+    { id: 'metplus', label: 'GridStat (spasial)' },
+    { id: 'metplus_fss', label: 'FSS (neighborhood)' },
+    { id: 'metplus_mode', label: 'MODE (object-based)' },
+  ],
+  stations: [
+    { id: 'metplus_point', label: 'PointStat (stasiun BMKG)' },
+  ],
+};
 
 function selectedEngine() {
   const el = document.getElementById('methodSelect');
-  return (el && el.value) || currentEngine || 'harp';
+  return currentEngine || (el && el.value) || 'harp';
+}
+
+function selectedVerifier() {
+  return currentVerifier;
 }
 
 /** Internal API method id: harp | metplus | metplus_point | metplus_fss | metplus_mode */
@@ -60,7 +78,7 @@ function selectedMethod() {
   const engine = selectedEngine();
   if (engine === 'harp') return 'harp';
   const sub = document.getElementById('metplusSubmethod');
-  return (sub && sub.value) || 'metplus';
+  return (sub && sub.value) || (currentVerifier === 'stations' ? 'metplus_point' : 'metplus');
 }
 
 function isMetplusMethod(m = selectedMethod()) {
@@ -74,24 +92,208 @@ function methodQ(extra = '') {
   return rest ? `${q}&${rest}` : q;
 }
 
-function syncMethodUiFromApi(methodId) {
-  const m = String(methodId || 'harp').toLowerCase();
-  const engineSel = document.getElementById('methodSelect');
-  const subSel = document.getElementById('metplusSubmethod');
-  if (m === 'harp') {
-    if (engineSel) engineSel.value = 'harp';
-    currentEngine = 'harp';
-    currentMethod = 'harp';
+function saveFlowState() {
+  try {
+    sessionStorage.setItem(FLOW_STORAGE_KEY, JSON.stringify({
+      engine: currentEngine,
+      verifier: currentVerifier,
+      technique: selectedMethod(),
+    }));
+  } catch (_) { /* ignore */ }
+}
+
+function loadFlowState() {
+  try {
+    const raw = sessionStorage.getItem(FLOW_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearFlowState() {
+  try { sessionStorage.removeItem(FLOW_STORAGE_KEY); } catch (_) { /* ignore */ }
+}
+
+function fillTechniqueSelect(verifier, preferredId) {
+  const sel = document.getElementById('metplusSubmethod');
+  if (!sel) return;
+  const list = TECHNIQUES_BY_VERIFIER[verifier] || [];
+  sel.innerHTML = list.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+  if (preferredId && list.some(t => t.id === preferredId)) {
+    sel.value = preferredId;
+  } else if (list[0]) {
+    sel.value = list[0].id;
+  }
+}
+
+function updateSessionBadge() {
+  const badge = document.getElementById('sessionBadge');
+  const hint = document.getElementById('methodHint');
+  const sub = document.getElementById('headerSubtitle');
+  if (!badge) return;
+  if (currentEngine === 'harp') {
+    badge.textContent = 'HARP · Soft / Sinoptik';
+    if (hint) hint.textContent = 'Verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik.';
+    if (sub) sub.textContent = 'HARP (titik stasiun) | Pusat Standardisasi Instrumen MKG';
+  } else if (currentEngine === 'metplus' && currentVerifier === 'gsmap') {
+    badge.textContent = `METplus · GSMAP · ${methodLabel(selectedMethod())}`;
+    if (hint) hint.textContent = 'Verifikator GSMAP: GridStat / FSS / MODE vs hujan satelit.';
+    if (sub) sub.textContent = 'METplus · verifikator GSMAP | Pusat Standardisasi Instrumen MKG';
+  } else if (currentEngine === 'metplus' && currentVerifier === 'stations') {
+    badge.textContent = 'METplus · Stasiun BMKG · PointStat';
+    if (hint) hint.textContent = 'Verifikator stasiun BMKG: PointStat di seluruh lokasi stasiun Indonesia.';
+    if (sub) sub.textContent = 'METplus · verifikator stasiun BMKG | Pusat Standardisasi Instrumen MKG';
   } else {
-    if (engineSel) engineSel.value = 'metplus';
-    currentEngine = 'metplus';
-    if (subSel) {
-      const ok = [...subSel.options].some(o => o.value === m);
-      subSel.value = ok ? m : 'metplus';
+    badge.textContent = '—';
+  }
+}
+
+function applyTabVisibility() {
+  const engine = selectedEngine();
+  const verifier = selectedVerifier();
+  document.querySelectorAll('#mainTabs .tab').forEach(btn => {
+    const tab = btn.dataset.tab;
+    let show = true;
+    if (engine === 'harp') {
+      // HARP: overview, scores, map, station, method — tanpa spatial
+      show = ['overview', 'scores', 'map', 'station', 'method'].includes(tab);
+    } else if (engine === 'metplus' && verifier === 'gsmap') {
+      // GSMAP: overview, scores, spatial, method
+      show = ['overview', 'scores', 'spatial', 'method'].includes(tab);
+    } else if (engine === 'metplus' && verifier === 'stations') {
+      // Stasiun BMKG / PointStat: overview, scores, station detail, method
+      show = ['overview', 'scores', 'station', 'method'].includes(tab);
+    } else {
+      show = false;
     }
+    btn.hidden = !show;
+  });
+  const active = document.querySelector('#mainTabs .tab.active');
+  if (!active || active.hidden) {
+    const first = document.querySelector('#mainTabs .tab:not([hidden])');
+    if (first) {
+      document.querySelectorAll('#mainTabs .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+      first.classList.add('active');
+      const panel = document.getElementById(first.dataset.tab);
+      if (panel) panel.classList.add('active');
+    }
+  }
+}
+
+function showGateOnly() {
+  document.getElementById('flowGate').hidden = false;
+  document.getElementById('verifierGate').hidden = true;
+  document.getElementById('appLayout').hidden = true;
+  const sub = document.getElementById('headerSubtitle');
+  if (sub) sub.textContent = 'Pilih metode verifikasi untuk memulai | Pusat Standardisasi Instrumen MKG';
+  document.getElementById('pipelineStatus').textContent = 'Pilih metode di atas untuk memulai…';
+}
+
+function showVerifierGate() {
+  document.getElementById('flowGate').hidden = true;
+  document.getElementById('verifierGate').hidden = false;
+  document.getElementById('appLayout').hidden = true;
+  const sub = document.getElementById('headerSubtitle');
+  if (sub) sub.textContent = 'METplus — pilih verifikator | Pusat Standardisasi Instrumen MKG';
+}
+
+async function enterDashboard({ engine, verifier = null, technique = null }) {
+  currentEngine = engine;
+  currentVerifier = engine === 'metplus' ? verifier : null;
+  const methodSel = document.getElementById('methodSelect');
+  if (methodSel) methodSel.value = engine === 'metplus' ? 'metplus' : 'harp';
+
+  const techSec = document.getElementById('techniqueSection');
+  if (engine === 'metplus') {
+    fillTechniqueSelect(verifier, technique);
+    if (techSec) techSec.hidden = (TECHNIQUES_BY_VERIFIER[verifier] || []).length <= 1;
+  } else {
+    if (techSec) techSec.hidden = true;
+  }
+
+  currentMethod = selectedMethod();
+  document.getElementById('flowGate').hidden = true;
+  document.getElementById('verifierGate').hidden = true;
+  document.getElementById('appLayout').hidden = false;
+
+  updateSessionBadge();
+  applyMethodUi();
+  applyTabVisibility();
+  saveFlowState();
+
+  if (!dashboardReady) {
+    await bootstrapDashboard();
+    dashboardReady = true;
+  } else {
+    await onSessionChanged();
+  }
+}
+
+async function onSessionChanged() {
+  const metricEl = document.getElementById('scoreMetric');
+  if (metricEl) {
+    if (selectedMethod() === 'metplus_fss') metricEl.value = 'fss';
+    else if (selectedMethod() === 'metplus_mode') metricEl.value = 'ets';
+    else if (isMetplusMethod() && metricEl.value === 'fss') metricEl.value = 'rmse';
+  }
+  mapBulkCache.key = '';
+  stationDetailCache.key = '';
+  document.querySelectorAll('.panel .error').forEach(el => el.remove());
+  try {
+    await loadModelSources();
+    await reloadParameters();
+    await loadCycles();
+    await loadPipelineStatus();
+    updateSidebarForTab(document.querySelector('.tab.active')?.dataset.tab || 'overview');
+    await refreshAll();
+  } catch (e) {
+    console.warn('session change', e);
+  }
+}
+
+function syncMethodUiFromApi(methodId) {
+  // Dipakai hanya jika session sudah aktif; jangan override gate
+  if (!currentEngine) return;
+  const m = String(methodId || 'harp').toLowerCase();
+  if (m === 'harp') {
+    currentEngine = 'harp';
+    currentVerifier = null;
+    currentMethod = 'harp';
+  } else if (m.startsWith('metplus')) {
+    currentEngine = 'metplus';
+    currentVerifier = (m === 'metplus_point') ? 'stations' : 'gsmap';
+    fillTechniqueSelect(currentVerifier, m);
     currentMethod = selectedMethod();
   }
+  updateSessionBadge();
   applyMethodUi();
+  applyTabVisibility();
+}
+
+function applyMethodUi() {
+  const m = selectedMethod();
+  currentMethod = m;
+  const lt = document.getElementById('leadTime');
+  const spatialHint = document.getElementById('spatialHint');
+  if (spatialHint) {
+    spatialHint.textContent = m === 'metplus_fss'
+      ? 'Output FSS (neighborhood) vs GSMAP — skor per lead. Peta GridStat di bawah bila tersedia.'
+      : m === 'metplus_mode'
+        ? 'Output MODE (object-based) vs GSMAP — interest & objek. Peta GridStat di bawah bila tersedia.'
+        : 'Peta pasangan grid METplus (fcst / obs / selisih) vs GSMAP.';
+  }
+  if (isMetplusMethod(m)) {
+    maxLeadTime = 72;
+    if (lt) { lt.max = 72; lt.step = 3; if (+lt.value > 72) lt.value = 12; }
+  } else {
+    maxLeadTime = 168;
+    if (lt) { lt.max = 168; lt.step = 3; }
+  }
+  applyLeadTime(lt ? +lt.value : 12, { refresh: false });
+  updateSessionBadge();
 }
 
 async function api(path, opts = {}) {
@@ -190,48 +392,9 @@ async function loadPublicConfig() {
     const cfg = await api('/api/config/public');
     cartoApiKey = (cfg.carto_api_key || '').trim();
     if (stationMap) stationMap.setCartoKey(cartoApiKey);
-    syncMethodUiFromApi(cfg.default_method || 'harp');
   } catch (e) {
     console.warn('public config', e);
-    applyMethodUi();
   }
-}
-
-function applyMethodUi() {
-  const engine = selectedEngine();
-  const m = selectedMethod();
-  currentEngine = engine;
-  currentMethod = m;
-  const hint = document.getElementById('methodHint');
-  const lt = document.getElementById('leadTime');
-  const subWrap = document.getElementById('metplusSubWrap');
-  if (subWrap) subWrap.hidden = engine !== 'metplus';
-  const hints = {
-    metplus: 'METplus GridStat: skor grid vs GSMAP (H+3…H+72), peta spasial fcst/obs/diff.',
-    metplus_point: 'METplus PointStat: InaNWP vs GSMAP di seluruh stasiun BMKG (precip 3 jam).',
-    metplus_fss: 'METplus FSS: Fractions Skill Score neighborhood vs GSMAP (H+3…H+72).',
-    metplus_mode: 'METplus MODE: object-based verification objek hujan vs GSMAP.',
-    harp: 'HARP: verifikasi titik stasiun vs observasi BMKG Soft / Sinoptik.',
-  };
-  if (hint) hint.textContent = hints[m] || hints.harp;
-  const spatialHint = document.getElementById('spatialHint');
-  if (spatialHint) {
-    spatialHint.textContent = m === 'metplus_fss'
-      ? 'Output FSS (neighborhood) — skor vs lead time. Peta GridStat tetap di bawah bila tersedia.'
-      : m === 'metplus_mode'
-        ? 'Output MODE (object-based) — interest & jumlah objek vs lead. Peta GridStat di bawah bila tersedia.'
-        : m === 'metplus_point'
-          ? 'PointStat: skor titik stasiun. Peta spasial grid hanya untuk GridStat.'
-          : 'Peta pasangan grid METplus (fcst / obs / selisih).';
-  }
-  if (isMetplusMethod(m)) {
-    maxLeadTime = 72;
-    if (lt) { lt.max = 72; lt.step = 3; if (+lt.value > 72) lt.value = 12; }
-  } else {
-    maxLeadTime = 168;
-    if (lt) { lt.max = 168; lt.step = 3; }
-  }
-  applyLeadTime(lt ? +lt.value : 12, { refresh: false });
 }
 
 const SCORE_METRICS = {
@@ -279,9 +442,9 @@ function initCharts() {
   });
 }
 
-async function init() {
-  await loadPublicConfig();
+async function bootstrapDashboard() {
   initCharts();
+  if (cartoApiKey && stationMap) stationMap.setCartoKey(cartoApiKey);
   try {
     await reloadParameters();
   } catch (e) {
@@ -290,7 +453,6 @@ async function init() {
     console.error('parameters', e);
     return;
   }
-
   try {
     const stations = await api('/api/stations');
     document.getElementById('stationSelect').innerHTML = stations.map(s =>
@@ -298,15 +460,59 @@ async function init() {
   } catch (e) {
     console.warn('stations', e);
   }
-
   await loadCycles();
   await loadPipelineStatus();
   await loadModelSources();
   bindEvents();
   updateSidebarForTab(document.querySelector('.tab.active')?.dataset.tab || 'overview');
   await refreshAll();
-
   setInterval(loadPipelineStatus, 300000);
+}
+
+async function init() {
+  await loadPublicConfig();
+  bindFlowEvents();
+
+  const saved = loadFlowState();
+  if (saved?.engine === 'harp') {
+    await enterDashboard({ engine: 'harp' });
+  } else if (saved?.engine === 'metplus' && (saved.verifier === 'gsmap' || saved.verifier === 'stations')) {
+    await enterDashboard({
+      engine: 'metplus',
+      verifier: saved.verifier,
+      technique: saved.technique,
+    });
+  } else {
+    showGateOnly();
+  }
+}
+
+function bindFlowEvents() {
+  document.getElementById('pickHarp')?.addEventListener('click', () => {
+    enterDashboard({ engine: 'harp' });
+  });
+  document.getElementById('pickMetplus')?.addEventListener('click', () => {
+    currentEngine = 'metplus';
+    showVerifierGate();
+  });
+  document.getElementById('pickGsmap')?.addEventListener('click', () => {
+    enterDashboard({ engine: 'metplus', verifier: 'gsmap', technique: 'metplus' });
+  });
+  document.getElementById('pickStations')?.addEventListener('click', () => {
+    enterDashboard({ engine: 'metplus', verifier: 'stations', technique: 'metplus_point' });
+  });
+  document.getElementById('backToEngine')?.addEventListener('click', () => {
+    currentEngine = null;
+    currentVerifier = null;
+    clearFlowState();
+    showGateOnly();
+  });
+  document.getElementById('changeMethodBtn')?.addEventListener('click', () => {
+    currentEngine = null;
+    currentVerifier = null;
+    clearFlowState();
+    showGateOnly();
+  });
 }
 
 async function loadModelSources() {
@@ -532,9 +738,13 @@ async function reloadParameters() {
   applyMethodUi();
 }
 
+let eventsBound = false;
 function bindEvents() {
+  if (eventsBound) return;
+  eventsBound = true;
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (btn.hidden) return;
       document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(btn.dataset.tab).classList.add('active');
@@ -549,28 +759,12 @@ function bindEvents() {
     });
   });
 
-  async function onMethodChanged() {
+  document.getElementById('metplusSubmethod')?.addEventListener('change', async () => {
     applyMethodUi();
-    const metricEl = document.getElementById('scoreMetric');
-    if (metricEl) {
-      if (selectedMethod() === 'metplus_fss') metricEl.value = 'fss';
-      else if (selectedMethod() === 'metplus_mode') metricEl.value = 'ets';
-      else if (isMetplusMethod() && metricEl.value === 'fss') metricEl.value = 'rmse';
-    }
-    mapBulkCache.key = '';
-    stationDetailCache.key = '';
-    document.querySelectorAll('.panel .error').forEach(el => el.remove());
-    try {
-      await loadModelSources();
-      await reloadParameters();
-      await loadCycles();
-      await refreshAll();
-    } catch (e) {
-      console.warn('method switch', e);
-    }
-  }
-  document.getElementById('methodSelect')?.addEventListener('change', onMethodChanged);
-  document.getElementById('metplusSubmethod')?.addEventListener('change', onMethodChanged);
+    applyTabVisibility();
+    saveFlowState();
+    await onSessionChanged();
+  });
 
   ['parameter', 'initCycle'].forEach(id => document.getElementById(id).addEventListener('change', () => {
     mapBulkCache.key = '';

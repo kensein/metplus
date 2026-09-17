@@ -41,6 +41,137 @@ header h1 { margin: 0; font-size: 1.35rem; color: var(--accent); font-weight: 70
   line-height: 1.35;
 }
 
+/* —— Flow gate (pilih metode / verifikator) —— */
+.flow-gate {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem 3rem;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% 0%, #dbeafe 0%, transparent 55%),
+    radial-gradient(ellipse 70% 45% at 90% 100%, #e0f2fe 0%, transparent 50%),
+    var(--bg);
+}
+.flow-inner {
+  width: min(860px, 100%);
+}
+.flow-step {
+  margin: 0 0 0.35rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+  font-weight: 700;
+}
+.flow-inner h2 {
+  margin: 0 0 0.4rem;
+  font-size: clamp(1.45rem, 3vw, 1.85rem);
+  color: var(--text);
+  font-weight: 700;
+}
+.flow-lead {
+  margin: 0 0 1.35rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  max-width: 42rem;
+  line-height: 1.45;
+}
+.flow-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1rem;
+}
+.flow-card {
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 10px;
+  padding: 1.15rem 1.2rem 1.25rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  font: inherit;
+  color: inherit;
+}
+.flow-card:hover,
+.flow-card:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 82, 155, 0.12);
+  transform: translateY(-2px);
+  outline: none;
+}
+.flow-card-kicker {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 0.35rem;
+}
+.flow-card-title {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 0.45rem;
+}
+.flow-card-body {
+  display: block;
+  font-size: 0.88rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+.flow-back {
+  margin-top: 1.25rem;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.35rem 0;
+}
+.flow-back:hover { text-decoration: underline; }
+
+.context-section { padding-bottom: 0.25rem; }
+.context-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.context-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  font-weight: 600;
+}
+.context-badge {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-top: 0.15rem;
+  line-height: 1.25;
+}
+.ghost-btn {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.3rem 0.55rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ghost-btn:hover { border-color: var(--accent); background: var(--accent-light); }
+
+.tab[hidden],
+.panel[hidden] { display: none !important; }
+
 .metplus-sub {
   margin-top: 0.55rem;
 }
