@@ -806,7 +806,7 @@ def station_detail(
         "archive_start": series_archive_start().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "series": series,
         "source": source,
-        "note": "Gap pada garis model = tidak ada forecast (model tidak running) pada valid time itu.",
+        "note": "Gaps on a model line mean no forecast at that valid time.",
     }
 
 
