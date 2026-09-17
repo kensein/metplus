@@ -1,0 +1,15 @@
+data/
+*.db
+__pycache__/
+*.pyc
+.env
+.venv/
+__pycache__/
+data/artifacts/
+data/cache/
+data/nc/
+data/obs/
+data/metplus/
+.env
+logs/
+*.pyc
