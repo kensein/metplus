@@ -1,0 +1,29 @@
+model = "INANWP";
+obtype = "GSMAP";
+desc = "TEST_3H";
+fcst = {
+  field = [ { name = "precip"; level = "(*,*)"; cat_thresh = [ >0.1, >1.0, >5.0, >10.0 ]; } ];
+}
+obs = {
+  field = [ { name = "precip"; level = "(*,*)"; cat_thresh = [ >0.1, >1.0, >5.0, >10.0 ]; } ];
+}
+regrid = {
+  to_grid = NONE;
+}
+mask = {
+  grid = [ "FULL" ];
+}
+output_flag = {
+  fho = NONE;
+  ctc = STAT;
+  cts = STAT;
+  cnt = STAT;
+  sl1l2 = STAT;
+}
+nc_pairs_flag = {
+  latlon = TRUE;
+  raw = TRUE;
+  diff = TRUE;
+}
+output_prefix = "INANWP_vs_GSMAP";
+tmp_dir = "/home/dpu/data/tmp";

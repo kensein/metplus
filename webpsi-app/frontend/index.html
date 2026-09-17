@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verifikasi InaNWP — METplus | PSIMKG</title>
+  <base href="/verifikasi-inanwp/" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="vendor/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="topbar">
+    <span>Pusat Standardisasi Instrumen Meteorologi Klimatologi dan Geofisika (PSIMKG)</span>
+    <span><a href="/" style="color:#fff">Portal PSIMKG</a></span>
+  </div>
+  <header class="header">
+    <a class="brand" href="/verifikasi-inanwp/">
+      <img class="brand-logo" src="assets/bmkg-logo.png" width="42" height="53" alt="Logo BMKG" />
+      <div>
+        <h1>Verifikasi InaNWP</h1>
+      </div>
+    </a>
+    <nav class="nav">
+      <a class="active" href="/verifikasi-inanwp/">Dashboard</a>
+      <a href="/verifikasi-inanwp/metode.html">Metode &amp; Workflow</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h2>Dashboard Verifikasi Model InaNWP</h2>
+    </section>
+
+    <div class="run-bar card panel">
+      <label for="run-select"><strong>Histori verifikasi</strong></label>
+      <select id="run-select" aria-label="Pilih waktu valid verifikasi"></select>
+      <span id="run-count" class="muted"></span>
+    </div>
+
+    <div id="status" class="muted" style="margin-bottom:0.8rem">Memuat data…</div>
+    <div id="error" hidden class="error"></div>
+
+    <section class="grid" id="metrics">
+      <div class="card"><h3>Status</h3><div class="val" id="m-status">—</div><div class="sub" id="m-updated">—</div></div>
+      <div class="card"><h3>Waktu Valid</h3><div class="val" id="m-valid">—</div><div class="sub" id="m-accum">—</div></div>
+      <div class="card"><h3>Pasangan Grid</h3><div class="val" id="m-pairs">—</div><div class="sub">titik yang dibandingkan</div></div>
+      <div class="card"><h3>RMSE</h3><div class="val" id="m-rmse">—</div><div class="sub">mm · skor kontinu</div></div>
+    </section>
+
+    <section class="card panel">
+      <h3>Grafik skor vs lead time (H+3 … H+72)</h3>
+      <p class="muted" id="series-caption">Akumulasi hujan 3 jam, total precip InaNWP = RAINNC+RAINC+RAINSH.</p>
+      <div class="charts-grid">
+        <div class="chart-box"><canvas id="chart-rmse"></canvas></div>
+        <div class="chart-box"><canvas id="chart-me"></canvas></div>
+        <div class="chart-box"><canvas id="chart-csi"></canvas></div>
+        <div class="chart-box"><canvas id="chart-ets"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Daftar run tersimpan</h3>
+      <p class="muted">Setiap folder valid di penyimpanan METplus menjadi satu entri histori.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Valid</th>
+              <th>Status</th>
+              <th>Pasangan grid</th>
+              <th>RMSE</th>
+              <th>ME</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="runs-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Peta pasangan grid (dari file pairs NetCDF)</h3>
+      <p class="muted" id="maps-caption">Memuat keterangan peta…</p>
+      <div id="maps-explain" class="maps-explain"></div>
+      <div id="maps-gallery" class="maps-gallery"></div>
+    </section>
+
+    <section class="card panel">
+      <h3>File keluaran METplus</h3>
+      <p class="muted">File skor (.txt / .stat) dan pasangan field spasial yang tersimpan di webpsi.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Jenis</th>
+              <th>File</th>
+              <th>Valid</th>
+              <th>Ukuran</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="files-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Skor kontinu (CNT)</h3>
+      <p class="muted">Ringkasan error magnitudo dari baris CNT pada file statistik.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>TOTAL</th>
+              <th>FBAR</th>
+              <th>OBAR</th>
+              <th>ME</th>
+              <th>MAE</th>
+              <th>RMSE</th>
+              <th>PR_CORR</th>
+              <th>MBIAS</th>
+            </tr>
+          </thead>
+          <tbody id="cnt-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Skor kategorikal (CTS)</h3>
+      <p class="muted">Skor hujan per ambang (mm): POD, FAR, CSI, ETS, FBIAS, dan akurasi.</p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ambang</th>
+              <th>TOTAL</th>
+              <th>ACC</th>
+              <th>FBIAS</th>
+              <th>POD</th>
+              <th>FAR</th>
+              <th>CSI</th>
+              <th>ETS</th>
+              <th>HSS</th>
+            </tr>
+          </thead>
+          <tbody id="cts-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Tabel kontingensi (CTC)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Ambang</th>
+              <th>Hit</th>
+              <th>False alarm</th>
+              <th>Miss</th>
+              <th>Correct negative</th>
+            </tr>
+          </thead>
+          <tbody id="ctc-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card panel">
+      <h3>Isi file skor (.txt)</h3>
+      <pre id="stat-raw" class="stat-raw">Memuat…</pre>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="inner">
+      <div>
+        <strong>PSIMKG BMKG</strong><br />
+        Dashboard Verifikasi InaNWP · METplus
+      </div>
+      <div>
+        <a href="/" style="color:#f6c453">Portal</a> ·
+        <a href="/verifikasi-inanwp/metode.html" style="color:#f6c453">Metode</a>
+      </div>
+    </div>
+  </footer>
+  <script src="app.js"></script>
+</body>
+</html>
