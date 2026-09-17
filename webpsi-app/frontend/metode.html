@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Metode &amp; Workflow METplus | Verifikasi InaNWP</title>
+  <base href="/verifikasi-inanwp/" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="topbar">
+    <span>Pusat Standardisasi Instrumen Meteorologi Klimatologi dan Geofisika (PSIMKG)</span>
+    <span><a href="/" style="color:#fff">Portal PSIMKG</a></span>
+  </div>
+  <header class="header">
+    <a class="brand" href="/verifikasi-inanwp/">
+      <img class="brand-logo" src="assets/bmkg-logo.png" width="42" height="53" alt="Logo BMKG" />
+      <div>
+        <h1>Verifikasi InaNWP</h1>
+      </div>
+    </a>
+    <nav class="nav">
+      <a href="/verifikasi-inanwp/">Dashboard</a>
+      <a class="active" href="/verifikasi-inanwp/metode.html">Metode &amp; Workflow</a>
+    </nav>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h2>Metode verifikasi METplus</h2>
+      <p>
+        Cara membandingkan prakiraan InaNWP dengan observasi GSMAP NRT pada grid yang sama,
+        beserta metrik yang dipakai.
+      </p>
+    </section>
+
+    <section class="card panel method-block">
+      <h3>1. Alur kerja</h3>
+      <div class="steps" style="margin-top:0.8rem">
+        <div class="step"><div class="step-num">1</div><div>
+          <strong>Kumpulkan input</strong>
+          <div class="muted">Prakiraan: wrfout atau NetCDF InaNWP. Observasi: GSMAP NRT jam-jaman dari FTP himawari6/GSMaP/netcdf.</div>
+        </div></div>
+        <div class="step"><div class="step-num">2</div><div>
+          <strong>Samakan field</strong>
+          <div class="muted">Hujan model dari akumulasi RAINNC diubah ke interval 3 jam. GSMAP rainrate dijumlah pada interval yang sama.</div>
+        </div></div>
+        <div class="step"><div class="step-num">3</div><div>
+          <strong>RegridDataPlane</strong>
+          <div class="muted">Observasi di-regrid ke grid model (metode BUDGET) agar setiap sel punya pasangan prakiraan dan observasi.</div>
+        </div></div>
+        <div class="step"><div class="step-num">4</div><div>
+          <strong>GridStat</strong>
+          <div class="muted">Hitung skor kontinu dan kategorikal di seluruh domain (mask FULL atau wilayah tertentu).</div>
+        </div></div>
+        <div class="step"><div class="step-num">5</div><div>
+          <strong>Publikasi dashboard</strong>
+          <div class="muted">File skor dan pasangan grid di-push dari DPU ke webpsi. Dashboard hanya menampilkan hasil.</div>
+        </div></div>
+      </div>
+    </section>
+
+    <section class="card panel method-block">
+      <h3>2. Mengapa grid-to-grid?</h3>
+      <p>
+        GSMAP adalah data hujan gridded satelit. Membandingkannya dengan field hujan InaNWP pada grid yang sama
+        memungkinkan evaluasi pola spasial, bukan hanya di titik stasiun.
+        Verifikasi titik stasiun (PointStat) dapat ditambahkan kemudian.
+      </p>
+    </section>
+
+    <section class="card panel method-block">
+      <h3>3. Metrik GridStat</h3>
+      <h4>Kontinu (CNT)</h4>
+      <ul>
+        <li><strong>RMSE</strong>: magnitudo error rata-rata (semakin kecil semakin baik)</li>
+        <li><strong>ME / Bias</strong>: kecenderungan overestimate atau underestimate</li>
+        <li><strong>MAE</strong>: rata-rata absolut error</li>
+      </ul>
+      <h4>Kategorikal (CTS / CTC)</h4>
+      <ul>
+        <li>Ambang contoh: &gt;0.1, &gt;1, &gt;5, &gt;10 mm</li>
+        <li><strong>POD</strong>, <strong>FAR</strong>, <strong>CSI / ETS</strong>, <strong>Frequency Bias</strong></li>
+        <li>CTC menyimpan hit, miss, false alarm, dan correct negative</li>
+      </ul>
+      <p class="muted">
+        Rujukan: panduan verifikasi prakiraan WMO; Jolliffe &amp; Stephenson, <em>Forecast Verification</em>;
+        dokumentasi METplus/MET (DTC).
+      </p>
+    </section>
+
+    <section class="card panel method-block">
+      <h3>4. File keluaran METplus</h3>
+      <ul>
+        <li><code>*.stat</code>: tabel skor ASCII (CNT, CTS, CTC, dan lainnya)</li>
+        <li><code>*_pairs.nc</code>: field prakiraan, observasi, dan selisih untuk peta</li>
+      </ul>
+    </section>
+
+    <p><a class="btn-bmkg" href="/verifikasi-inanwp/">Kembali ke Dashboard</a></p>
+  </main>
+
+  <footer class="footer">
+    <div class="inner">
+      <div><strong>PSIMKG BMKG</strong><br />Metode verifikasi berbasis METplus</div>
+      <div><a href="/verifikasi-inanwp/" style="color:#f6c453">Dashboard</a></div>
+    </div>
+  </footer>
+</body>
+</html>
