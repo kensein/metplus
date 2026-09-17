@@ -184,8 +184,13 @@ def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse
     # Prefer method-specific default metric
     if method == "metplus_fss" and score == "rmse":
         score = "fss" if "fss" in df.columns and df["fss"].notna().any() else "csi"
-    if method == "metplus_mode" and score == "rmse":
-        score = "ets" if "ets" in df.columns and df["ets"].notna().any() else "mae"
+    if method == "metplus_mode" and score in ("rmse", "ets"):
+        if "total_interest" in df.columns and df["total_interest"].notna().any():
+            score = "total_interest"
+        elif "mae" in df.columns and df["mae"].notna().any():
+            score = "mae"
+        else:
+            score = "ets"
     metric = score if score in df.columns else "rmse"
     if metric not in df.columns:
         return {}

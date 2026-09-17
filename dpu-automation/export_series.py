@@ -150,6 +150,57 @@ def point_from_cnt_cts(lead, meta, recs, extra=None):
     return row
 
 
+def parse_mode_obj(run_dir: Path) -> dict:
+    """Summarize MODE *_obj.txt: object counts + mean INTEREST of matched pairs."""
+    obj_files = sorted(run_dir.glob("*_obj.txt"))
+    if not obj_files:
+        return {}
+    text = obj_files[0].read_text(errors="replace")
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("VERSION")]
+    header = None
+    rows = []
+    for ln in text.splitlines():
+        if not ln.strip():
+            continue
+        parts = ln.split()
+        if parts[0] == "VERSION":
+            header = parts
+            continue
+        if header and len(parts) >= len(header):
+            rows.append(dict(zip(header, parts)))
+    n_fcst = n_obs = n_match = 0
+    interests = []
+    for r in rows:
+        oid = r.get("OBJECT_ID", "")
+        interest = num(r.get("INTEREST"))
+        if oid.startswith("F") and "_" not in oid and not oid.startswith("FCST"):
+            # simple F### simple objects (not composites sometimes CF)
+            if re.match(r"^F\d+$", oid):
+                n_fcst += 1
+        if oid.startswith("O") and re.match(r"^O\d+$", oid):
+            n_obs += 1
+        # matched pairs often LOOK like F001_O002 or have both in OBJECT_ID
+        if "_" in oid and oid[0] in ("F", "O") and interest is not None:
+            n_match += 1
+            interests.append(interest)
+        elif interest is not None and interest > 0 and "F" in oid and "O" in oid:
+            n_match += 1
+            interests.append(interest)
+    # fallback counts from unique simple IDs if regex path empty
+    if n_fcst == 0:
+        n_fcst = len({r.get("OBJECT_ID") for r in rows if re.match(r"^F\d+$", str(r.get("OBJECT_ID") or ""))})
+    if n_obs == 0:
+        n_obs = len({r.get("OBJECT_ID") for r in rows if re.match(r"^O\d+$", str(r.get("OBJECT_ID") or ""))})
+    mean_interest = float(sum(interests) / len(interests)) if interests else None
+    return {
+        "n_fcst_objects": n_fcst,
+        "n_obs_objects": n_obs,
+        "n_matched": n_match if n_match else len(interests),
+        "total_interest": mean_interest,
+        "mean_interest": mean_interest,
+    }
+
+
 def export_method(root: Path, method: str, sub: str, init, max_lead, step, prefer=None):
     points = []
     for lead in range(step, max_lead + 1, step):
@@ -157,44 +208,30 @@ def export_method(root: Path, method: str, sub: str, init, max_lead, step, prefe
         if not matched:
             continue
         run_dir, meta = matched
+
+        if method == "metplus_mode":
+            mode_stats = parse_mode_obj(run_dir)
+            points.append({
+                "lead_hours": lead,
+                "valid": meta.get("valid_yyyymmddhh"),
+                "init": meta.get("init"),
+                "rmse": None,
+                "me": None,
+                "mae": mode_stats.get("mean_interest"),
+                "csi_0.1": None,
+                "ets_0.1": mode_stats.get("mean_interest"),
+                "total_interest": mode_stats.get("total_interest"),
+                "n_fcst_objects": mode_stats.get("n_fcst_objects"),
+                "n_obs_objects": mode_stats.get("n_obs_objects"),
+                "n_matched": mode_stats.get("n_matched"),
+                "n_obj_files": len(list(run_dir.glob("*_obj.*"))),
+                "mode_rc": meta.get("mode_rc"),
+                "score": mode_stats.get("mean_interest"),
+            })
+            continue
+
         score_file = find_score_file(run_dir, prefer_substr=prefer)
         if not score_file:
-            # MODE may not have classic .stat — summarize objects
-            if method == "metplus_mode":
-                objs = list(run_dir.glob("*.obj")) + list(run_dir.glob("*_obj.txt"))
-                interest = None
-                n_fcst = n_obs = n_match = None
-                for p in run_dir.glob("*"):
-                    if p.suffix in (".txt", ".stat", ".out") or "mode" in p.name.lower():
-                        text = p.read_text(errors="replace")
-                        m = re.search(r"TOTAL INTEREST\s*[:=]\s*([0-9.]+)", text, re.I)
-                        if m:
-                            interest = num(m.group(1))
-                        m = re.search(r"Fcst\s+objects\s*[:=]\s*(\d+)", text, re.I)
-                        if m:
-                            n_fcst = int(m.group(1))
-                        m = re.search(r"Obs\s+objects\s*[:=]\s*(\d+)", text, re.I)
-                        if m:
-                            n_obs = int(m.group(1))
-                        m = re.search(r"Matched\s*[:=]\s*(\d+)", text, re.I)
-                        if m:
-                            n_match = int(m.group(1))
-                points.append({
-                    "lead_hours": lead,
-                    "valid": meta.get("valid_yyyymmddhh"),
-                    "init": meta.get("init"),
-                    "rmse": None,
-                    "me": None,
-                    "mae": None,
-                    "csi_0.1": None,
-                    "ets_0.1": None,
-                    "total_interest": interest,
-                    "n_fcst_objects": n_fcst,
-                    "n_obs_objects": n_obs,
-                    "n_matched": n_match,
-                    "n_obj_files": len(objs),
-                    "mode_rc": meta.get("mode_rc"),
-                })
             continue
         recs = parse_stat(score_file)
         if method == "metplus_fss":
