@@ -12,9 +12,9 @@ Jangan pull dari webpsi ke DPU.
 
 ```
 30 1 * * * /home/dpu/apps/verifikasi-inanwp/daily_verify_push.sh
-0 */6 * * * /home/dpu/apps/verifikasi-inanwp/daily_verify_push.sh
 ```
 
+Sehari sekali (01:30 UTC), selaras dengan InaNWP yang jalan harian.
 ## Manual
 
 ```bash

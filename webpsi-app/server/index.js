@@ -256,7 +256,7 @@ app.get("/api/runs", (_req, res) => {
     count: runs.length,
     latest: runs[0]?.run || null,
     auto_update: true,
-    note: "Otomasi aktif di DPU: hitung METplus lalu push ke webpsi (cron 01:30 UTC dan tiap 6 jam).",
+    note: "Otomasi aktif di DPU: sehari sekali (01:30 UTC), hitung METplus lalu push ke webpsi.",
     runs,
   });
 });
