@@ -1,0 +1,983 @@
+const BASE_PATH = (() => {
+  const p = window.location.pathname;
+  if (p.startsWith('/model-verification')) return '/model-verification';
+  if (p.startsWith('/monas')) return '/monas';
+  return '';
+})();
+
+// Path calls are always `/api/...`. Under BASE_PATH Apache proxies
+// `/model-verification/api` → API port `/api`.
+const API = (() => {
+  const { hostname, port } = window.location;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    return 'http://localhost:8028';
+  }
+  if (BASE_PATH) {
+    return `${window.location.origin}${BASE_PATH}`;
+  }
+  return port ? `${window.location.protocol}//${hostname}:8028` : `http://${hostname}:8028`;
+})();
+
+const INIT_DASHES = [
+  [],                 // terbaru: solid
+  [10, 5],
+  [3, 4],
+  [12, 4, 2, 4],
+  [2, 3],
+  [14, 4, 2, 4, 2, 4],
+];
+const INIT_MARKERS = ['circle', 'square', 'diamond', 'triangle', 'circle', 'square'];
+
+const MODEL_COLORS = {
+  Observasi: '#ca8a04',
+  InaNWP: '#ea580c',
+  InaCAWO: '#16a34a',
+  GFS: '#dc2626',
+  IFS: '#7c3aed',
+};
+
+let rankingChart, scoreChart, stationChart, stationMap;
+let paramsMeta = {};
+let paramsAvailableByModel = {};
+let paramsUnavailableNotes = {};
+let maxLeadTime = 168;
+let modelSources = { InaNWP: 'real', InaCAWO: 'dummy', GFS: 'dummy', IFS: 'dummy' };
+let cartoApiKey = '';
+let mapBulkCache = { key: '', data: null };
+let stationDetailCache = { key: '', data: null };
+let leadPlayTimer = null;
+const LEAD_PLAY_MS = 800;
+let currentMethod = 'harp';
+
+function selectedMethod() {
+  const el = document.getElementById('methodSelect');
+  return (el && el.value) || currentMethod || 'harp';
+}
+
+function methodQ(extra = '') {
+  const q = `method=${encodeURIComponent(selectedMethod())}`;
+  return extra ? `${q}&${extra.replace(/^\?|&/, '')}` : q;
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(`${API}${path}`, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || res.statusText);
+  }
+  return res.json();
+}
+
+function selectedModels() { return [...document.querySelectorAll('.model-cb:checked')].map(el => el.value); }
+function modelsQuery() { return selectedModels().join(','); }
+function requireModels(emptyHtmlId, emptyMsg) {
+  if (selectedModels().length) return true;
+  if (emptyHtmlId) {
+    const el = document.getElementById(emptyHtmlId);
+    if (el) el.innerHTML = emptyMsg || 'Centang minimal satu model di sidebar.';
+  }
+  return false;
+}
+
+/** Param tersedia jika ≥1 model tercentang punya field NC-nya (InaNWP asim list).
+ *  Jika API belum kirim available_by_model (backend lama / belum restart), jangan kunci UI. */
+function paramAvailableForSelection(param) {
+  const models = selectedModels();
+  if (!models.length) return true;
+  const known = models.filter(m => Array.isArray(paramsAvailableByModel[m]));
+  if (!known.length) return true;
+  return known.some(m => paramsAvailableByModel[m].includes(param));
+}
+
+function refreshParameterOptions() {
+  const sel = document.getElementById('parameter');
+  if (!sel || !Object.keys(paramsMeta).length) return;
+  const prev = sel.value;
+  const notes = paramsUnavailableNotes.InaNWP || {};
+  sel.innerHTML = Object.entries(paramsMeta).map(([k, v]) => {
+    const ok = paramAvailableForSelection(k);
+    const hint = !ok && notes[k] ? ` — tidak di NC` : (!ok ? ' — tidak di NC model' : '');
+    return `<option value="${k}" ${ok ? '' : 'disabled'}>${v.label} (${v.unit})${hint}</option>`;
+  }).join('');
+  if (prev && [...sel.options].some(o => o.value === prev && !o.disabled)) {
+    sel.value = prev;
+  } else {
+    const first = [...sel.options].find(o => !o.disabled);
+    if (first) sel.value = first.value;
+  }
+}
+function selectedInitTime() { return document.getElementById('initCycle').value || ''; }
+
+function formatLeadTime(h) {
+  if (h === 0) return 'D+0 (analysis)';
+  if (h < 24) return `D+${(h / 24).toFixed(1)} (${h} jam)`;
+  return `D+${(h / 24).toFixed(1)} (${h} jam)`;
+}
+
+/** UTC ISO → teks WIB (Asia/Jakarta, UTC+7). */
+function formatTimeWIB(isoUtc) {
+  if (!isoUtc) return '—';
+  const s = String(isoUtc).endsWith('Z') ? isoUtc : `${isoUtc}Z`;
+  try {
+    return new Date(s).toLocaleString('id-ID', {
+      timeZone: 'Asia/Jakarta',
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }) + ' WIB';
+  } catch {
+    return String(isoUtc).slice(0, 16);
+  }
+}
+
+function formatTimeDual(isoUtc) {
+  if (!isoUtc) return '—';
+  const utc = String(isoUtc).replace('Z', '').slice(0, 16).replace('T', ' ');
+  return `${formatTimeWIB(isoUtc)} <span class="time-utc">(${utc} UTC)</span>`;
+}
+
+function nearestLeadTime(available, target) {
+  if (!available?.length) return null;
+  let best = available[0];
+  let bestD = Math.abs(best - target);
+  for (const lt of available) {
+    const d = Math.abs(lt - target);
+    if (d < bestD) { best = lt; bestD = d; }
+  }
+  return best;
+}
+
+async function loadPublicConfig() {
+  try {
+    const cfg = await api('/api/config/public');
+    cartoApiKey = (cfg.carto_api_key || '').trim();
+    if (stationMap) stationMap.setCartoKey(cartoApiKey);
+    if (cfg.default_method) {
+      currentMethod = cfg.default_method;
+      const sel = document.getElementById('methodSelect');
+      if (sel) sel.value = cfg.default_method;
+    }
+    applyMethodUi();
+  } catch (e) {
+    console.warn('public config', e);
+  }
+}
+
+function applyMethodUi() {
+  const m = selectedMethod();
+  currentMethod = m;
+  const hint = document.getElementById('methodHint');
+  const lt = document.getElementById('leadTime');
+  if (m === 'metplus') {
+    if (hint) hint.textContent = 'METplus: skor grid vs GSMAP (H+3…H+72), peta spasial.';
+    maxLeadTime = 72;
+    if (lt) { lt.max = 72; lt.step = 3; if (+lt.value > 72) lt.value = 12; }
+  } else {
+    if (hint) hint.textContent = 'HARP: verifikasi titik stasiun vs observasi BMKG.';
+    maxLeadTime = 168;
+    if (lt) { lt.max = 168; lt.step = 3; }
+  }
+  applyLeadTime(lt ? +lt.value : 12, { refresh: false });
+}
+
+const SCORE_METRICS = {
+  rmse: { label: 'RMSE', lowerBetter: true },
+  mae: { label: 'MAE', lowerBetter: true },
+  bias: { label: 'Bias', lowerBetter: true },
+  stde: { label: 'stde', lowerBetter: true },
+  correlation: { label: 'Correlation (r)', lowerBetter: false },
+  csi: { label: 'CSI', lowerBetter: false },
+  ets: { label: 'ETS', lowerBetter: false },
+};
+
+function selectedScoreMetric() {
+  const el = document.getElementById('scoreMetric');
+  const v = el?.value || 'rmse';
+  return SCORE_METRICS[v] ? v : 'rmse';
+}
+
+function initCharts() {
+  rankingChart = new MonasChart('rankingChart');
+  scoreChart = new MonasChart('scoreChart', {
+    onClick(hit) {
+      if (hit.type !== 'pt' || !hit.extra) return;
+      const ex = hit.extra;
+      const metric = selectedScoreMetric();
+      const metricLabel = SCORE_METRICS[metric]?.label || metric;
+      document.getElementById('scoreDetail').innerHTML =
+        `<strong>${hit.series}</strong> · ${formatLeadTime(+hit.x)}<br>
+         ${metricLabel}: <strong>${hit.y.toFixed(4)}</strong> ·
+         RMSE: ${ex.rmse?.toFixed(4) ?? '—'} · Bias: ${ex.bias?.toFixed(4) ?? '—'} ·
+         MAE: ${ex.mae?.toFixed(4) ?? '—'} · stde: ${ex.stde?.toFixed(4) ?? '—'} ·
+         r: ${ex.correlation?.toFixed(4) ?? '—'} · N: ${ex.n_cases ?? '—'}`;
+    },
+  });
+  stationChart = new MonasChart('stationChart', { zoomable: true });
+  document.getElementById('chartZoomIn')?.addEventListener('click', () => stationChart.zoomBy(0.7));
+  document.getElementById('chartZoomOut')?.addEventListener('click', () => stationChart.zoomBy(1.35));
+  document.getElementById('chartZoomReset')?.addEventListener('click', () => stationChart.resetZoom());
+  stationMap = new StationCanvasMap('leafletMap', {
+    cartoKey: cartoApiKey,
+    onStationClick(st) {
+      showStationMapDetail(st);
+    },
+  });
+}
+
+async function init() {
+  await loadPublicConfig();
+  initCharts();
+  try {
+    await reloadParameters();
+  } catch (e) {
+    document.getElementById('pipelineStatus').textContent =
+      `Gagal load /api/parameters (${API}): ${e.message}`;
+    console.error('parameters', e);
+    return;
+  }
+
+  try {
+    const stations = await api('/api/stations');
+    document.getElementById('stationSelect').innerHTML = stations.map(s =>
+      `<option value="${s.station_id}">${s.station_id} — ${s.name || s.station_id}</option>`).join('');
+  } catch (e) {
+    console.warn('stations', e);
+  }
+
+  await loadCycles();
+  await loadPipelineStatus();
+  await loadModelSources();
+  bindEvents();
+  updateSidebarForTab(document.querySelector('.tab.active')?.dataset.tab || 'overview');
+  await refreshAll();
+
+  setInterval(loadPipelineStatus, 300000);
+}
+
+async function loadModelSources() {
+  try {
+    const data = await api(`/api/models/sources?${methodQ()}`);
+    modelSources = data.sources || modelSources;
+    document.querySelectorAll('.model-cb').forEach(cb => {
+      const badge = cb.parentElement.querySelector('.badge');
+      if (!badge) return;
+      const src = modelSources[cb.value] || 'real';
+      badge.textContent = src;
+      badge.className = `badge ${src}`;
+      if (src === 'none') cb.checked = false;
+      if (src === 'real' && selectedMethod() === 'metplus' && cb.value === 'InaNWP') cb.checked = true;
+    });
+    refreshParameterOptions();
+  } catch (e) { console.warn('model sources', e); }
+}
+
+function modelBadge(model) {
+  const src = modelSources[model] || 'real';
+  return `<span class="badge ${src}">${src}</span>`;
+}
+
+async function loadMethodology() {
+  const el = document.getElementById('harpMethodology');
+  if (selectedMethod() === 'metplus') {
+    el.innerHTML = `
+      <h2>METplus — verifikasi spasial</h2>
+      <p>GridStat InaNWP vs GSMAP NRT. Precip total = <code>RAINNC+RAINC+RAINSH</code>, akumulasi 3 jam, lead H+3…H+72.</p>
+      <ol>
+        <li>Prepare precip 3h dari wrfout (per init / per lead)</li>
+        <li>Sum GSMAP jam-jaman → 3h, regrid ke grid model</li>
+        <li>grid_stat → CNT/CTS + pairs.nc + skor .txt</li>
+        <li>export_series.py → series.json untuk grafik & ranking</li>
+      </ol>
+      <p>Compute di <strong>DPU</strong> (tanpa Docker/litbangweb). Webpsi hanya menampilkan artifact.</p>
+    `;
+    return;
+  }
+  try {
+    const m = await api('/api/harp/methodology');
+    el.innerHTML = `
+      <h2>${m.title}</h2>
+      <p>${m.subtitle}</p>
+      <div class="note-box">${m.python_equivalence || ''}</div>
+      <h3>Referensi HARP</h3>
+      <div class="refs">${m.references.map(r =>
+        `<a href="${r.url}" target="_blank" rel="noopener">${r.title}</a> — ${r.description}`
+      ).join('<br>')}</div>
+      <h3>Alur kerja (harpPoint)</h3>
+      <ol>${m.workflow.map(w => `<li><strong>${w.name}</strong> — ${w.detail}</li>`).join('')}</ol>
+      <h3>Skor deterministik (det_verify)</h3>
+      <p>Semua skor dihitung <strong>paired</strong>: hanya pasangan (fcst, obs) yang lengkap setelah join & QC.</p>
+      <table><tr><th>Skor</th><th>Formula</th><th>Catatan</th></tr>
+      ${m.scores.map(s => `<tr><td>${s.id}</td><td><code>${s.formula}</code></td><td>${s.note}</td></tr>`).join('')}
+      </table>
+      <h3>Quality Control</h3>
+      <p>${m.qc}</p>
+    `;
+  } catch (e) {
+    el.innerHTML = `<em>Gagal memuat metodologi HARP: ${e.message}</em>`;
+  }
+}
+
+async function loadCycles() {
+  try {
+    const cycles = await api(`/api/cycles?${methodQ()}`);
+    const sel = document.getElementById('initCycle');
+    const opts = cycles.map(c => {
+      const label = c.model
+        ? `${c.model} · ${c.init_time || ''}${c.n_points != null ? ` · ${c.n_points} lead` : ''}`
+        : (c.init_time || '');
+      return `<option value="${c.init_time || ''}">${label}</option>`;
+    });
+    sel.innerHTML = '<option value="">Terbaru (semua cycle)</option>' + opts.join('');
+  } catch (e) { console.warn('cycles', e); }
+}
+
+async function loadPipelineStatus() {
+  const el = document.getElementById('pipelineStatus');
+  const src = document.getElementById('dataSource');
+  try {
+    const [status, inventory] = await Promise.all([
+      api('/api/pipeline/status'),
+      api('/api/pipeline/inventory'),
+    ]);
+    const inanwp = inventory.InaNWP || {};
+    const done = status.model_runs?.filter(r => r.status === 'done').length || 0;
+    const pending = status.model_runs?.filter(r => r.status === 'pending').length || 0;
+    el.textContent = `Pipeline: ${status.verification_scores_count} skor · ${done} run selesai · ${pending} pending · auto-sync aktif`;
+    src.innerHTML = `NC: <code>${inanwp.path || 'litbangweb'}</code> · ${inanwp.count || 0} file`;
+  } catch (e) {
+    el.textContent = 'Pipeline: ' + e.message;
+  }
+}
+
+function updateSidebarForTab(tab) {
+  const leadSec = document.getElementById('leadTimeSection');
+  if (leadSec) leadSec.style.display = (tab === 'overview' || tab === 'map') ? '' : 'none';
+  if (tab !== 'overview' && tab !== 'map') stopLeadPlayback();
+}
+
+function leadSlider() { return document.getElementById('leadTime'); }
+
+function getLeadStep() {
+  const el = leadSlider();
+  const step = Number(el?.step);
+  return Number.isFinite(step) && step > 0 ? step : 3;
+}
+
+function applyLeadTime(hours, { refresh = true } = {}) {
+  const el = leadSlider();
+  if (!el) return;
+  const min = +el.min || 0;
+  const max = +el.max || maxLeadTime;
+  const step = getLeadStep();
+  let h = Math.round(+hours / step) * step;
+  h = Math.min(max, Math.max(min, h));
+  el.value = String(h);
+  const label = document.getElementById('leadTimeLabel');
+  if (label) label.textContent = formatLeadTime(h);
+  if (!refresh) return;
+  const tab = document.querySelector('.tab.active')?.dataset.tab;
+  if (tab === 'map') renderMapFromCache();
+  else if (tab === 'overview') loadOverview();
+}
+
+function stepLeadTime(dir) {
+  const el = leadSlider();
+  if (!el) return false;
+  const step = getLeadStep();
+  const next = +el.value + dir * step;
+  const min = +el.min || 0;
+  const max = +el.max || maxLeadTime;
+  if (next < min || next > max) return false;
+  applyLeadTime(next);
+  return true;
+}
+
+function isLeadPlaying() { return leadPlayTimer != null; }
+
+function stopLeadPlayback() {
+  if (leadPlayTimer != null) {
+    clearInterval(leadPlayTimer);
+    leadPlayTimer = null;
+  }
+  const btn = document.getElementById('leadPlay');
+  if (btn) {
+    btn.textContent = '▶';
+    btn.title = 'Putar lead time';
+    btn.classList.remove('playing');
+    btn.setAttribute('aria-pressed', 'false');
+  }
+}
+
+function startLeadPlayback() {
+  stopLeadPlayback();
+  const btn = document.getElementById('leadPlay');
+  if (btn) {
+    btn.textContent = '⏸';
+    btn.title = 'Jeda';
+    btn.classList.add('playing');
+    btn.setAttribute('aria-pressed', 'true');
+  }
+  leadPlayTimer = setInterval(() => {
+    const el = leadSlider();
+    if (!el) { stopLeadPlayback(); return; }
+    const step = getLeadStep();
+    const max = +el.max || maxLeadTime;
+    const min = +el.min || 0;
+    let next = +el.value + step;
+    if (next > max) next = min; // loop D+0 → D+7
+    applyLeadTime(next);
+  }, LEAD_PLAY_MS);
+}
+
+function toggleLeadPlayback() {
+  if (isLeadPlaying()) stopLeadPlayback();
+  else startLeadPlayback();
+}
+
+async function reloadParameters() {
+  const data = await api(`/api/parameters?${methodQ()}`);
+  paramsMeta = data.verify_parameters || {};
+  paramsAvailableByModel = data.available_by_model || {};
+  paramsUnavailableNotes = data.unavailable_notes || {};
+  maxLeadTime = data.max_lead_time_hours || (selectedMethod() === 'metplus' ? 72 : 168);
+  const ltSlider = document.getElementById('leadTime');
+  if (ltSlider) {
+    ltSlider.max = maxLeadTime;
+    if (+ltSlider.value > maxLeadTime) ltSlider.value = Math.min(12, maxLeadTime);
+  }
+  refreshParameterOptions();
+  applyMethodUi();
+}
+
+function bindEvents() {
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab, .panel').forEach(el => el.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.tab).classList.add('active');
+      updateSidebarForTab(btn.dataset.tab);
+      refreshAll();
+      requestAnimationFrame(() => {
+        rankingChart?.redraw();
+        scoreChart?.redraw();
+        stationChart?.redraw();
+        stationMap?.invalidateSize();
+      });
+    });
+  });
+
+  document.getElementById('methodSelect')?.addEventListener('change', async () => {
+    mapBulkCache.key = '';
+    stationDetailCache.key = '';
+    applyMethodUi();
+    try {
+      await reloadParameters();
+      await loadModelSources();
+      await loadCycles();
+    } catch (e) {
+      console.warn('method switch', e);
+    }
+    await refreshAll();
+  });
+
+  ['parameter', 'initCycle'].forEach(id => document.getElementById(id).addEventListener('change', () => {
+    mapBulkCache.key = '';
+    stationDetailCache.key = '';
+    refreshAll();
+  }));
+  document.getElementById('leadTime').addEventListener('input', () => {
+    stopLeadPlayback();
+    applyLeadTime(+document.getElementById('leadTime').value);
+  });
+  document.getElementById('leadPrev')?.addEventListener('click', () => {
+    stopLeadPlayback();
+    stepLeadTime(-1);
+  });
+  document.getElementById('leadNext')?.addEventListener('click', () => {
+    stopLeadPlayback();
+    stepLeadTime(1);
+  });
+  document.getElementById('leadPlay')?.addEventListener('click', () => toggleLeadPlayback());
+  document.getElementById('scoreMetric')?.addEventListener('change', () => {
+    if (document.querySelector('.tab.active')?.dataset.tab === 'scores') loadScores();
+  });
+  document.getElementById('stationRangeMonths')?.addEventListener('change', () => {
+    stationDetailCache.key = '';
+    loadStationDetail();
+  });
+  document.querySelectorAll('.model-cb').forEach(cb => cb.addEventListener('change', () => {
+    mapBulkCache.key = '';
+    stationDetailCache.key = '';
+    refreshParameterOptions();
+    refreshAll();
+  }));
+  document.getElementById('stationSelect').addEventListener('change', () => {
+    stationDetailCache.key = '';
+    loadStationDetail();
+  });
+}
+
+function scoresQuery(extra = '') {
+  const init = selectedInitTime();
+  const base = methodQ(`models=${modelsQuery()}&parameter=${document.getElementById('parameter').value}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
+  return extra ? `${base}${extra.startsWith('&') ? extra : `&${extra}`}` : base;
+}
+
+async function refreshAll() {
+  const tab = document.querySelector('.tab.active')?.dataset.tab;
+  try {
+    if (tab === 'overview') await loadOverview();
+    if (tab === 'scores') await loadScores();
+    if (tab === 'map') await loadMap();
+    if (tab === 'spatial') await loadSpatial();
+    if (tab === 'method') await loadMethodology();
+    if (tab === 'station') await loadStationDetail();
+  } catch (e) {
+    console.error('refreshAll', tab, e);
+    const host = document.querySelector('.panel.active') || document.getElementById('overview');
+    if (host) {
+      const box = document.createElement('div');
+      box.className = 'error';
+      box.style.cssText = 'margin:1rem;padding:0.75rem;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:8px;';
+      box.textContent = `Gagal memuat tab ${tab || '?'}: ${e.message || e}`;
+      host.prepend(box);
+    }
+  }
+  requestAnimationFrame(() => {
+    rankingChart?.redraw();
+    scoreChart?.redraw();
+    stationChart?.redraw();
+    stationMap?.invalidateSize?.();
+  });
+}
+
+async function loadOverview() {
+  const cards = document.getElementById('rankingCards');
+  const kpis = document.getElementById('kpiGrid');
+  if (!requireModels('rankingCards', '<em>Centang minimal satu model di sidebar.</em>')) {
+    if (kpis) kpis.innerHTML = '';
+    rankingChart?.setBar({ title: 'Pilih model', yLabel: 'RMSE', labels: ['—'], values: [0], colors: ['#e2e8f0'] });
+    return;
+  }
+  const lt = document.getElementById('leadTime').value;
+  const init = selectedInitTime();
+  const rankQ = methodQ(`models=${modelsQuery()}&score=rmse${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
+
+  let ranking = { ranking: [] };
+  let scores = { scores: [] };
+  try {
+    ranking = await api(`/api/verification/ranking?${rankQ}`);
+  } catch (e) {
+    if (cards) cards.innerHTML = `<em>Gagal ranking: ${e.message}</em>`;
+    throw e;
+  }
+  try {
+    scores = await api(`/api/verification/scores?${scoresQuery(`&lead_time=${lt}`)}`);
+  } catch (e) {
+    // Jangan gagalkan ranking hanya karena lead tertentu kosong
+    console.warn('scores lead', lt, e);
+    try {
+      scores = await api(`/api/verification/scores?${scoresQuery()}`);
+    } catch (e2) {
+      console.warn('scores all', e2);
+    }
+  }
+
+  const rows = ranking.ranking || [];
+  if (!rows.length) {
+    if (cards) cards.innerHTML = '<em>Belum ada ranking untuk metode/model ini.</em>';
+  } else {
+    cards.innerHTML = rows.map(r => {
+      const rmse = r.mean_rmse ?? r.mean_score;
+      const rmseTxt = (typeof rmse === 'number' && Number.isFinite(rmse)) ? rmse.toFixed(3) : '—';
+      const maeTxt = (typeof r.mean_mae === 'number') ? r.mean_mae.toFixed(3) : null;
+      const biasTxt = (typeof r.mean_bias === 'number') ? r.mean_bias.toFixed(3) : null;
+      return `<div class="rank-card rank-${r.rank || 1}">
+        <div class="rank-num">#${r.rank || 1}</div>
+        <div class="model-name">${r.model} ${modelBadge(r.model)}</div>
+        <div class="metric">Mean RMSE: <strong>${rmseTxt}</strong>${maeTxt != null ? ` · MAE: ${maeTxt}` : ''}</div>
+        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Metode: ${selectedMethod().toUpperCase()}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
+      </div>`;
+    }).join('');
+  }
+
+  rankingChart?.setBar({
+    title: `Ranking ${selectedMethod().toUpperCase()} — Mean RMSE (semakin kecil semakin baik)`,
+    yLabel: 'Mean RMSE',
+    labels: rows.map(r => r.model),
+    values: rows.map(r => {
+      const v = r.mean_rmse ?? r.mean_score ?? 0;
+      return (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
+    }),
+    colors: ['#00529B', '#64748b', '#94a3b8', '#cbd5e1'],
+  });
+  rankingChart?.redraw();
+
+  const scoreRows = scores.scores || [];
+  if (kpis) {
+    kpis.innerHTML = scoreRows.length
+      ? scoreRows.map(s => `
+        <div class="kpi">
+          <div class="label">${s.model} · ${formatLeadTime(s.lead_time)}</div>
+          <div class="value">RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '—'}</div>
+          <div class="label">Bias ${typeof s.bias === 'number' ? s.bias.toFixed(2) : '—'} · MAE ${typeof s.mae === 'number' ? s.mae.toFixed(2) : '—'} · CSI ${typeof s.csi === 'number' ? s.csi.toFixed(2) : '—'} · N=${s.n_cases ?? '—'}</div>
+        </div>`).join('')
+      : '<em class="hint">Tidak ada skor untuk lead time ini — geser lead atau buka tab Scores vs Lead Time.</em>';
+  }
+}
+
+async function loadSpatial() {
+  const gal = document.getElementById('spatialGallery');
+  if (!gal) return;
+  if (selectedMethod() !== 'metplus') {
+    gal.innerHTML = '<em>Pilih metode <strong>METplus</strong> untuk melihat peta spasial grid.</em>';
+    return;
+  }
+  const model = selectedModels()[0] || 'InaNWP';
+  try {
+    const data = await api(`/api/metplus/spatial?model=${encodeURIComponent(model)}`);
+    const maps = data.maps || [];
+    if (!maps.length) {
+      gal.innerHTML = '<em>Belum ada peta METplus. Jalankan pipeline DPU lalu sync maps/.</em>';
+      return;
+    }
+    const latest = maps.slice(-6).reverse();
+    gal.innerHTML = latest.map(m => {
+      const fcst = m.files['fcst.png'] ? `${API}/api/metplus/maps/${m.valid}/fcst.png` : '';
+      const obs = m.files['obs.png'] ? `${API}/api/metplus/maps/${m.valid}/obs.png` : '';
+      const diff = m.files['diff.png'] ? `${API}/api/metplus/maps/${m.valid}/diff.png` : '';
+      return `<div class="spatial-card">
+        <h4>${m.valid} · ${m.model}</h4>
+        <div class="spatial-row">
+          ${fcst ? `<figure><img src="${fcst}" alt="fcst"/><figcaption>FCST</figcaption></figure>` : ''}
+          ${obs ? `<figure><img src="${obs}" alt="obs"/><figcaption>OBS</figcaption></figure>` : ''}
+          ${diff ? `<figure><img src="${diff}" alt="diff"/><figcaption>DIFF</figcaption></figure>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    gal.innerHTML = `<em>Gagal memuat peta spasial: ${e.message}</em>`;
+  }
+}
+
+async function loadScores() {
+  const metric = selectedScoreMetric();
+  const metricLabel = SCORE_METRICS[metric]?.label || metric;
+  const detail = document.getElementById('scoreDetail');
+  if (!selectedModels().length) {
+    scoreChart?.setLines({ title: 'Centang minimal satu model', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    return;
+  }
+  let data;
+  try {
+    data = await api(`/api/verification/scores?${scoresQuery()}`);
+  } catch (e) {
+    if (detail) detail.innerHTML = `<span style="color:#b91c1c">Gagal load scores: ${e.message}</span>`;
+    scoreChart?.setLines({ title: 'Gagal memuat skor', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    return;
+  }
+  const series = selectedModels().map(m => {
+    const pts = (data.scores || []).filter(s => s.model === m).sort((a, b) => a.lead_time - b.lead_time);
+    return {
+      name: m,
+      color: MODEL_COLORS[m] || '#00529B',
+      x: pts.map(p => p.lead_time),
+      y: pts.map(p => {
+        const v = p[metric];
+        return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+      }),
+      extra: pts.map(p => ({
+        rmse: p.rmse, bias: p.bias, mae: p.mae, stde: p.stde,
+        correlation: p.correlation, csi: p.csi, ets: p.ets, n_cases: p.n_cases,
+      })),
+    };
+  });
+  scoreChart?.setLines({
+    title: `${metricLabel} vs Lead Time — ${selectedMethod().toUpperCase()} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
+    xLabel: 'Lead Time (jam)',
+    yLabel: metricLabel,
+    xNumeric: true,
+    series,
+  });
+  scoreChart?.redraw();
+  if (detail) {
+    const n = (data.scores || []).length;
+    detail.innerHTML = n
+      ? `Memuat ${n} titik skor (${selectedMethod().toUpperCase()}). Klik titik pada grafik untuk detail.`
+      : '<em>Tidak ada titik skor. Pastikan pipeline DPU sudah dijalankan dan artifact ter-sync.</em>';
+  }
+}
+
+async function ensureMapBulk() {
+  const model = selectedModels()[0];
+  if (!model) return null;
+  const param = document.getElementById('parameter').value;
+  const init = selectedInitTime();
+  const key = `${model}|${param}|${init}`;
+  if (mapBulkCache.key !== key) {
+    mapBulkCache.data = await api(
+      `/api/verification/map/bulk?model=${model}&parameter=${param}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`
+    );
+    mapBulkCache.key = key;
+  }
+  return mapBulkCache.data;
+}
+
+function renderMapFromCache() {
+  if (!selectedModels().length) {
+    stationMap?.setStations([]);
+    document.getElementById('mapDetail').textContent = 'Centang minimal satu model di sidebar.';
+    return;
+  }
+  if (!mapBulkCache.data) return loadMap();
+  if (stationMap) stationMap.invalidateSize();
+  const lt = +document.getElementById('leadTime').value;
+  const available = mapBulkCache.data.available_lead_times || [];
+  const resolvedLt = available.includes(lt) ? lt : nearestLeadTime(available, lt);
+  const data = resolvedLt != null
+    ? (mapBulkCache.data.records || []).filter(d => d.lead_time === resolvedLt)
+    : [];
+
+  if (!data.length) {
+    stationMap.setStations([]);
+    const detail = document.getElementById('mapDetail');
+    if (!available.length) {
+      detail.textContent = 'Belum ada data peta untuk filter ini (parameter/init cycle).';
+    } else {
+      const minLt = Math.min(...available);
+      const maxLt = Math.max(...available);
+      detail.innerHTML = `<strong>Data kosong</strong> untuk ${formatLeadTime(lt)}.<br>
+        Lead time tersedia: ${formatLeadTime(minLt)} – ${formatLeadTime(maxLt)} (${minLt}–${maxLt} jam).
+        ${lt > maxLt ? 'Perluas data NC/pipeline untuk lead lebih jauh.' : 'Geser slider ke rentang tersebut.'}`;
+    }
+    return;
+  }
+
+  const maxRmse = Math.max(...data.map(d => d.rmse || 0), 0.01);
+  stationMap.setStations(data.map(d => ({
+    station_id: d.station_id,
+    name: d.name,
+    lat: d.lat,
+    lon: d.lon,
+    rmse: d.rmse,
+    fcst: d.fcst_mean,
+    obs: d.obs_mean,
+    lead_time: d.lead_time,
+    color: d.rmse < maxRmse * 0.33 ? '#16a34a' : d.rmse < maxRmse * 0.66 ? '#ca8a04' : '#dc2626',
+  })));
+  const detail = document.getElementById('mapDetail');
+  if (resolvedLt !== lt) {
+    detail.textContent = `Menampilkan lead time terdekat: ${formatLeadTime(resolvedLt)} (slider: ${formatLeadTime(lt)}). Klik stasiun untuk detail.`;
+  } else {
+    detail.textContent = `${data.length} stasiun · ${formatLeadTime(lt)}. Klik stasiun untuk fcst vs obs.`;
+  }
+}
+
+async function loadMap() {
+  try {
+    if (!selectedModels().length) {
+      stationMap?.setStations([]);
+      document.getElementById('mapDetail').textContent = 'Centang minimal satu model di sidebar.';
+      return;
+    }
+    await ensureMapBulk();
+    renderMapFromCache();
+  } catch (e) {
+    document.getElementById('mapDetail').textContent = 'Gagal memuat peta: ' + e.message;
+  }
+}
+
+async function showStationMapDetail(st) {
+  const stationId = st.station_id || st;
+  const model = selectedModels()[0];
+  const ltSlider = +document.getElementById('leadTime').value;
+  const available = mapBulkCache.data?.available_lead_times || [];
+  const resolvedLt = st.lead_time
+    ?? (available.includes(ltSlider) ? ltSlider : nearestLeadTime(available, ltSlider));
+  const recs = (mapBulkCache.data?.records || []).filter(
+    d => String(d.station_id) === String(stationId) && (resolvedLt == null || d.lead_time === resolvedLt),
+  );
+  const rec = recs[0];
+  const fcst = rec?.fcst_mean ?? st.fcst;
+  const obs = rec?.obs_mean ?? st.obs;
+  const name = rec?.name || st.name || stationId;
+  const initIso = mapBulkCache.data?.init_time;
+
+  let html = `<strong>${name}</strong> · ${formatLeadTime(resolvedLt ?? ltSlider)}`;
+  if (initIso) html += `<br><span class="time-utc">Init ${formatTimeDual(initIso)}</span>`;
+  html += '<table><tr><th>Model</th><th>Fcst</th><th>Obs</th><th>Err</th></tr>';
+  if (model) {
+    const err = fcst != null && obs != null && !Number.isNaN(fcst) && !Number.isNaN(obs)
+      ? (fcst - obs).toFixed(3) : '—';
+    html += `<tr><td>${model}</td><td>${Number.isFinite(fcst) ? fcst.toFixed(2) : '—'}</td>`;
+    html += `<td>${Number.isFinite(obs) ? obs.toFixed(2) : '—'}</td><td>${err}</td></tr>`;
+  }
+  html += '</table>';
+  document.getElementById('mapDetail').innerHTML = html;
+}
+
+function stationDetailQuery() {
+  const months = document.getElementById('stationRangeMonths')?.value || 3;
+  const init = selectedInitTime();
+  let q = `parameter=${document.getElementById('parameter').value}&models=${modelsQuery()}&series_mode=by_init&months=${months}`;
+  if (init) q += `&init_time=${encodeURIComponent(init)}`;
+  return q;
+}
+
+function toEpochMs(isoUtc) {
+  if (!isoUtc) return null;
+  const s = String(isoUtc).endsWith('Z') ? isoUtc : `${isoUtc}Z`;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : t;
+}
+
+function downsamplePoints(points, maxPoints = 400) {
+  if (points.length <= maxPoints) return points;
+  const step = Math.ceil(points.length / maxPoints);
+  const out = points.filter((_, i) => i % step === 0);
+  if (out[out.length - 1] !== points[points.length - 1]) out.push(points[points.length - 1]);
+  return out;
+}
+
+function renderStationFromCache() {
+  const data = stationDetailCache.data;
+  if (!data) return loadStationDetail();
+  const param = document.getElementById('parameter').value;
+  const stationId = document.getElementById('stationSelect').value;
+  const months = +document.getElementById('stationRangeMonths')?.value || 3;
+
+  if (data.series_mode === 'by_init' || data.inits) {
+    const obsPts = downsamplePoints(data.obs || [], 900);
+    const series = [{
+      name: 'Observasi',
+      color: MODEL_COLORS.Observasi,
+      width: 2,
+      dotsOnly: false,
+      x: obsPts.map(p => toEpochMs(p.valid_time)),
+      y: obsPts.map(p => (p.obs != null ? p.obs : null)),
+    }];
+    const inits = (data.inits || []).slice().sort((a, b) => String(b.init_time).localeCompare(String(a.init_time)));
+    const dashIdxByModel = {};
+    inits.forEach((run) => {
+      const n = dashIdxByModel[run.model] || 0;
+      dashIdxByModel[run.model] = n + 1;
+      const pts = downsamplePoints(run.points || [], 200);
+      // Tooltip: model + init. Legend: nama model saja.
+      const tip = `${run.model} · init ${formatTimeWIB(run.init_time)}`;
+      series.push({
+        name: tip,
+        legendName: run.model,
+        color: MODEL_COLORS[run.model] || '#00529B',
+        dash: INIT_DASHES[n % INIT_DASHES.length],
+        marker: INIT_MARKERS[n % INIT_MARKERS.length],
+        // Terbaru lebih tebal & pekat; lama lebih tipis/transparan + dash beda
+        alpha: Math.max(0.4, 1 - n * 0.12),
+        width: n === 0 ? 2.4 : 1.6,
+        markers: true,
+        dotsOnly: false,
+        x: pts.map(p => toEpochMs(p.valid_time)),
+        y: pts.map(p => (p.fcst != null ? p.fcst : null)),
+      });
+    });
+
+    stationChart.setLines({
+      title: `${data.station.name || stationId} — ${paramsMeta[param]?.label} · ${months} bln · per init cycle`,
+      xLabel: 'Waktu valid (WIB)',
+      yLabel: paramsMeta[param]?.unit || '',
+      xNumeric: true,
+      xTime: true,
+      series,
+    });
+
+    const flat = [];
+    for (const run of inits) {
+      for (const p of run.points || []) {
+        flat.push({
+          valid_time: p.valid_time,
+          init_time: run.init_time,
+          model: run.model,
+          lead_time: p.lead_time,
+          fcst: p.fcst,
+          obs: p.obs,
+        });
+      }
+    }
+    flat.sort((a, b) => String(a.valid_time).localeCompare(String(b.valid_time)) || String(a.init_time).localeCompare(String(b.init_time)));
+
+    if (!flat.length && !obsPts.length) {
+      document.getElementById('stationTable').innerHTML =
+        `<em>Belum ada data untuk stasiun/parameter ini (window ${months} bulan).</em>`;
+      return;
+    }
+
+    let html = `<p class="lt-note">${inits.length} init cycle · ${obsPts.length}+ titik obs · ${flat.length} titik fcst · ${formatTimeWIB(data.date_from)} → ${formatTimeWIB(data.date_to)}</p>`;
+    html += '<div class="table-scroll"><table class="station-ts-table"><thead><tr><th>Valid (WIB)</th><th>Init</th><th>Model</th><th>Lead</th><th>Fcst</th><th>Obs</th><th>Err</th></tr></thead><tbody>';
+    const tableRows = flat.slice(-200);
+    tableRows.forEach(r => {
+      const err = r.fcst != null && r.obs != null ? (r.fcst - r.obs).toFixed(2) : '—';
+      html += `<tr><td>${formatTimeDual(r.valid_time)}</td><td>${formatTimeWIB(r.init_time)}</td><td>${r.model}</td>`;
+      html += `<td>${formatLeadTime(r.lead_time)}</td><td>${r.fcst?.toFixed(2) ?? '—'}</td><td>${r.obs?.toFixed(2) ?? '—'}</td><td>${err}</td></tr>`;
+    });
+    html += '</tbody></table></div>';
+    if (flat.length > 200) html = `<p class="lt-note">200 baris terakhir dari ${flat.length} titik fcst.</p>` + html;
+    document.getElementById('stationTable').innerHTML = html;
+    return;
+  }
+
+  // legacy by_lead (sqlite / fallback)
+  const lt = data.lead_time ?? 12;
+  const rows = data.series || [];
+  const models = selectedModels();
+  const plotRows = rows.length > 800 ? downsamplePoints(rows, 800) : rows;
+  const series = [{
+    name: 'Observasi',
+    color: MODEL_COLORS.Observasi,
+    width: 1.5,
+    dotsOnly: false,
+    x: plotRows.map(s => toEpochMs(s.valid_time)),
+    y: plotRows.map(s => (s.obs != null ? s.obs : null)),
+  }];
+  models.forEach(m => {
+    series.push({
+      name: m,
+      color: MODEL_COLORS[m] || '#00529B',
+      width: 1,
+      dotsOnly: true,
+      x: plotRows.map(s => toEpochMs(s.valid_time)),
+      y: plotRows.map(s => (s[m] != null ? s[m] : null)),
+    });
+  });
+  stationChart.setLines({
+    title: `${data.station.name || stationId} — ${paramsMeta[param]?.label} · ${months} bln · ${formatLeadTime(lt)}`,
+    xLabel: 'Waktu valid (WIB)',
+    yLabel: paramsMeta[param]?.unit || '',
+    xNumeric: true,
+    xTime: true,
+    series,
+  });
+  document.getElementById('stationTable').innerHTML = `<em>Mode by_lead (legacy).</em>`;
+}
+
+async function loadStationDetail() {
+  const stationId = document.getElementById('stationSelect').value;
+  if (!stationId) return;
+  if (!selectedModels().length) {
+    stationChart.setLines({
+      title: 'Centang minimal satu model di sidebar',
+      xLabel: 'Waktu valid (WIB)', yLabel: '', xNumeric: true, xTime: true, series: [],
+    });
+    document.getElementById('stationTable').innerHTML = '<em>Centang minimal satu model di sidebar.</em>';
+    return;
+  }
+  const key = `${stationId}|${stationDetailQuery()}`;
+  if (stationDetailCache.key !== key) {
+    stationDetailCache.data = await api(`/api/station/${stationId}/detail?${stationDetailQuery()}`);
+    stationDetailCache.key = key;
+  }
+  renderStationFromCache();
+}
+
+init().catch(console.error);

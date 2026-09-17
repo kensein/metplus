@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Model Verification — PSIMKG BMKG</title>
+  <link rel="icon" href="assets/bmkg-logo.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="header-row">
+      <img src="assets/bmkg-logo.png" alt="Logo BMKG" class="logo" />
+      <div>
+        <h1>Model Verification</h1>
+        <p>HARP (titik) · METplus (spasial) | Pusat Standardisasi Instrumen MKG</p>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <aside class="sidebar">
+      <section>
+        <h3>Metode Verifikasi</h3>
+        <select id="methodSelect" aria-label="Metode verifikasi">
+          <option value="harp">HARP — titik stasiun</option>
+          <option value="metplus">METplus — spasial / grid</option>
+        </select>
+        <p id="methodHint" class="hint">Pilih engine: HARP (stasiun) atau METplus (grid).</p>
+      </section>
+
+      <section>
+        <h3>Init Cycle (D-0)</h3>
+        <select id="initCycle">
+          <option value="">Semua / Terbaru</option>
+        </select>
+      </section>
+
+      <section id="leadTimeSection">
+        <h3>Lead Time</h3>
+        <input type="range" id="leadTime" min="0" max="168" step="3" value="12" />
+        <div class="lead-time-meta">
+          <span id="leadTimeLabel">D+0.5 (12 jam)</span>
+          <div class="lead-time-controls" role="group" aria-label="Kontrol lead time">
+            <button type="button" id="leadPrev" class="lead-btn" title="Lead sebelumnya">‹</button>
+            <button type="button" id="leadPlay" class="lead-btn lead-play" title="Putar lead time">▶</button>
+            <button type="button" id="leadNext" class="lead-btn" title="Lead berikutnya">›</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3>Parameter</h3>
+        <select id="parameter"></select>
+      </section>
+
+      <section>
+        <h3>Model</h3>
+        <label><input type="checkbox" class="model-cb" value="InaNWP" checked /> InaNWP <span class="badge real">real</span></label>
+        <label><input type="checkbox" class="model-cb" value="InaCAWO" checked /> InaCAWO <span class="badge dummy">dummy</span></label>
+        <label><input type="checkbox" class="model-cb" value="GFS" checked /> GFS <span class="badge dummy">dummy</span></label>
+        <label><input type="checkbox" class="model-cb" value="IFS" checked /> IFS <span class="badge dummy">dummy</span></label>
+      </section>
+    </aside>
+
+    <main>
+      <div class="tabs">
+        <button class="tab active" data-tab="overview">Overview & Ranking</button>
+        <button class="tab" data-tab="scores">Scores vs Lead Time</button>
+        <button class="tab" data-tab="map">Peta Stasiun</button>
+        <button class="tab" data-tab="spatial">Peta Spasial (METplus)</button>
+        <button class="tab" data-tab="method">Metode</button>
+        <button class="tab" data-tab="station">Detail Stasiun</button>
+      </div>
+
+      <div id="overview" class="panel active">
+        <div id="rankingCards" class="ranking-cards"></div>
+        <div id="rankingChart" class="chart"></div>
+        <div id="kpiGrid" class="kpi-grid"></div>
+      </div>
+
+      <div id="scores" class="panel">
+        <div class="scores-toolbar">
+          <label class="scores-metric-label">Metrik
+            <select id="scoreMetric">
+              <option value="rmse" selected>RMSE</option>
+              <option value="mae">MAE</option>
+              <option value="bias">Bias</option>
+              <option value="stde">stde</option>
+              <option value="correlation">Correlation (r)</option>
+              <option value="csi">CSI (METplus)</option>
+              <option value="ets">ETS (METplus)</option>
+            </select>
+          </label>
+        </div>
+        <div id="scoreChart" class="chart"></div>
+        <div id="scoreDetail" class="detail-box">Klik titik pada grafik untuk melihat angka detail.</div>
+      </div>
+
+      <div id="map" class="panel">
+        <div class="map-wrap">
+          <div id="leafletMap"></div>
+          <div id="mapDetail" class="detail-box">Klik stasiun pada peta untuk melihat fcst vs obs (HARP).</div>
+        </div>
+      </div>
+
+      <div id="spatial" class="panel">
+        <p class="hint">Peta pasangan grid METplus (fcst / obs / selisih). Gunakan metode METplus.</p>
+        <div id="spatialGallery" class="spatial-gallery"></div>
+      </div>
+
+      <div id="method" class="panel">
+        <div id="harpMethodology" class="method-doc">Memuat metode...</div>
+      </div>
+
+      <div id="station" class="panel">
+        <div class="station-toolbar">
+          <select id="stationSelect"></select>
+          <label class="range-label">Rentang waktu
+            <select id="stationRangeMonths">
+              <option value="1">1 bulan terakhir</option>
+              <option value="2">2 bulan terakhir</option>
+              <option value="3" selected>3 bulan terakhir</option>
+              <option value="4">4 bulan terakhir</option>
+              <option value="5">5 bulan terakhir</option>
+              <option value="6">6 bulan terakhir</option>
+              <option value="9">9 bulan terakhir</option>
+              <option value="12">12 bulan terakhir (maks)</option>
+            </select>
+          </label>
+        </div>
+        <div class="chart-toolbar">
+          <button type="button" id="chartZoomIn" class="chart-zoom-btn" title="Zoom in">＋</button>
+          <button type="button" id="chartZoomOut" class="chart-zoom-btn" title="Zoom out">－</button>
+          <button type="button" id="chartZoomReset" class="chart-zoom-btn" title="Reset zoom">Reset</button>
+        </div>
+        <div id="stationChart" class="chart"></div>
+        <div id="stationTable" class="detail-box">Tabel pasangan fcst vs obs per valid time (HARP).</div>
+      </div>
+    </main>
+  </div>
+
+  <footer class="site-footer">
+    <span id="pipelineStatus">Memuat status pipeline...</span>
+    <span id="dataSource"></span>
+  </footer>
+
+  <script src="canvas-charts.js"></script>
+  <script src="canvas-map.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
