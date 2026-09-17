@@ -143,7 +143,7 @@ function updateSessionBadge() {
     if (sub) sub.textContent = 'METplus · verifikator GSMAP | Pusat Standardisasi Instrumen MKG';
   } else if (currentEngine === 'metplus' && currentVerifier === 'stations') {
     badge.textContent = 'METplus · Stasiun BMKG · PointStat';
-    if (hint) hint.textContent = 'Verifikator stasiun BMKG: PointStat di seluruh lokasi stasiun Indonesia.';
+    if (hint) hint.textContent = 'Verifikator stasiun BMKG: PointStat vs Soft/Sinoptik (sama obs HARP), bukan GSMaP sample.';
     if (sub) sub.textContent = 'METplus · verifikator stasiun BMKG | Pusat Standardisasi Instrumen MKG';
   } else {
     badge.textContent = '—';
@@ -557,12 +557,13 @@ async function loadMethodology() {
       </ol>`,
       },
       metplus_point: {
-        title: 'METplus — PointStat (seluruh stasiun Indonesia)',
-        body: `<p>PointStat membandingkan field grid InaNWP dengan observasi titik di <strong>seluruh stasiun BMKG</strong> (katalog WMO).</p>
-      <p>Parameter v1: curah hujan 3 jam (keluarga HARP rainfall / <code>precip_3h</code>), observasi titik dari GSMAP yang di-sample di lat/lon stasiun.</p>
+        title: 'METplus — PointStat (stasiun BMKG Soft)',
+        body: `<p>PointStat membandingkan field grid InaNWP dengan <strong>observasi Soft/Sinoptik BMKG</strong> di seluruh stasiun (katalog WMO) — <em>sumber obs sama dengan HARP</em>, bukan GSMaP yang di-sample di titik stasiun.</p>
+      <p>Parameter v1: curah hujan model 3 jam (<code>RAINNC+RAINC+RAINSH</code>) vs Soft <code>rainfall_last_mm</code> (fallback 6h/24h bila last kosong).</p>
       <ol>
-        <li>ascii2nc stasiun → NetCDF point obs</li>
-        <li>point_stat InaNWP precip vs titik stasiun</li>
+        <li>Export Soft/Sinoptik (bmkgsatu) → sinoptik_*.json</li>
+        <li>prepare_point_obs_soft.py → ASCII met_point</li>
+        <li>ascii2nc + point_stat vs InaNWP precip</li>
         <li>export → series_point.json</li>
       </ol>`,
       },
