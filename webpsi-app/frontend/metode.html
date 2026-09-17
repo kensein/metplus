@@ -17,7 +17,6 @@
       <img class="brand-logo" src="assets/bmkg-logo.png" width="42" height="53" alt="Logo BMKG" />
       <div>
         <h1>Verifikasi InaNWP</h1>
-        <p>Metode dan alur kerja METplus</p>
       </div>
     </a>
     <nav class="nav">
@@ -30,33 +29,33 @@
     <section class="hero">
       <h2>Metode verifikasi METplus</h2>
       <p>
-        Halaman ini menjelaskan cara membandingkan prakiraan InaNWP dengan observasi GSMAP NRT
-        pada grid yang sama, beserta metrik yang dipakai.
+        Cara membandingkan prakiraan InaNWP dengan observasi GSMAP NRT pada grid yang sama,
+        beserta metrik yang dipakai.
       </p>
     </section>
 
     <section class="card panel method-block">
-      <h3>1. Workflow end-to-end</h3>
+      <h3>1. Alur kerja</h3>
       <div class="steps" style="margin-top:0.8rem">
         <div class="step"><div class="step-num">1</div><div>
           <strong>Kumpulkan input</strong>
-          <div class="muted">Forecast: wrfout / NetCDF InaNWP. Observasi: GSMAP NRT hourly NetCDF dari FTP <code>himawari6/GSMaP/netcdf</code>.</div>
+          <div class="muted">Prakiraan: wrfout atau NetCDF InaNWP. Observasi: GSMAP NRT jam-jaman dari FTP himawari6/GSMaP/netcdf.</div>
         </div></div>
         <div class="step"><div class="step-num">2</div><div>
-          <strong>Siapkan field yang sebanding</strong>
-          <div class="muted">Hujan model sering akumulasi (<code>RAINNC</code>) → diubah ke interval (mis. 3 jam). GSMAP <code>rainrate</code> dijumlah pada interval yang sama.</div>
+          <strong>Samakan field</strong>
+          <div class="muted">Hujan model dari akumulasi RAINNC diubah ke interval 3 jam. GSMAP rainrate dijumlah pada interval yang sama.</div>
         </div></div>
         <div class="step"><div class="step-num">3</div><div>
           <strong>RegridDataPlane</strong>
-          <div class="muted">Observasi di-regrid ke grid model (metode BUDGET) agar setiap sel grid punya pasangan forecast–obs.</div>
+          <div class="muted">Observasi di-regrid ke grid model (metode BUDGET) agar setiap sel punya pasangan prakiraan dan observasi.</div>
         </div></div>
         <div class="step"><div class="step-num">4</div><div>
           <strong>GridStat</strong>
-          <div class="muted">Hitung skor kontinu &amp; kategorikal di seluruh domain (mask FULL / wilayah tertentu).</div>
+          <div class="muted">Hitung skor kontinu dan kategorikal di seluruh domain (mask FULL atau wilayah tertentu).</div>
         </div></div>
         <div class="step"><div class="step-num">5</div><div>
           <strong>Publikasi dashboard</strong>
-          <div class="muted">File <code>.stat</code> dan ringkasan JSON disalin ke webpsi; aplikasi ini hanya membaca output.</div>
+          <div class="muted">File skor dan pasangan grid di-push dari DPU ke webpsi. Dashboard hanya menampilkan hasil.</div>
         </div></div>
       </div>
     </section>
@@ -65,49 +64,40 @@
       <h3>2. Mengapa grid-to-grid?</h3>
       <p>
         GSMAP adalah data hujan gridded satelit. Membandingkannya dengan field hujan InaNWP pada grid yang sama
-        memungkinkan evaluasi pola spasial (bukan hanya di titik stasiun).
-        Verifikasi titik stasiun (grid-to-point / PointStat) dapat ditambahkan kemudian.
+        memungkinkan evaluasi pola spasial, bukan hanya di titik stasiun.
+        Verifikasi titik stasiun (PointStat) dapat ditambahkan kemudian.
       </p>
     </section>
 
     <section class="card panel method-block">
-      <h3>3. Metrik yang dihasilkan GridStat</h3>
-      <h4>Continuous (CNT)</h4>
+      <h3>3. Metrik GridStat</h3>
+      <h4>Kontinu (CNT)</h4>
       <ul>
-        <li><strong>RMSE</strong> — magnitude error rata-rata (semakin kecil semakin baik)</li>
-        <li><strong>ME / Bias</strong> — kecenderungan over/under-estimate</li>
-        <li><strong>MAE</strong> — rata-rata absolut error</li>
+        <li><strong>RMSE</strong>: magnitudo error rata-rata (semakin kecil semakin baik)</li>
+        <li><strong>ME / Bias</strong>: kecenderungan overestimate atau underestimate</li>
+        <li><strong>MAE</strong>: rata-rata absolut error</li>
       </ul>
-      <h4>Categorical (CTS / CTC)</h4>
+      <h4>Kategorikal (CTS / CTC)</h4>
       <ul>
-        <li>Threshold contoh: &gt;0.1, &gt;1, &gt;5, &gt;10 mm</li>
-        <li><strong>POD / Hit Rate</strong>, <strong>FAR</strong>, <strong>CSI / ETS</strong>, <strong>Frequency Bias</strong></li>
-        <li>CTC menyimpan hit, miss, false alarm, correct negative</li>
+        <li>Ambang contoh: &gt;0.1, &gt;1, &gt;5, &gt;10 mm</li>
+        <li><strong>POD</strong>, <strong>FAR</strong>, <strong>CSI / ETS</strong>, <strong>Frequency Bias</strong></li>
+        <li>CTC menyimpan hit, miss, false alarm, dan correct negative</li>
       </ul>
       <p class="muted">
-        Rujukan umum: panduan verifikasi prakiraan WMO; Jolliffe &amp; Stephenson — <em>Forecast Verification</em>;
+        Rujukan: panduan verifikasi prakiraan WMO; Jolliffe &amp; Stephenson, <em>Forecast Verification</em>;
         dokumentasi METplus/MET (DTC).
       </p>
     </section>
 
     <section class="card panel method-block">
-      <h3>4. Output file METplus</h3>
+      <h3>4. File keluaran METplus</h3>
       <ul>
-        <li><code>*.stat</code> — tabel skor ASCII (CNT, CTS, CTC, …)</li>
-        <li><code>*_pairs.nc</code> — NetCDF field forecast, observasi, dan selisih (untuk peta)</li>
+        <li><code>*.stat</code>: tabel skor ASCII (CNT, CTS, CTC, dan lainnya)</li>
+        <li><code>*_pairs.nc</code>: field prakiraan, observasi, dan selisih untuk peta</li>
       </ul>
     </section>
 
-    <section class="card panel method-block">
-      <h3>5. Batasan &amp; catatan operasional</h3>
-      <ul>
-        <li>Selalu cek <code>START_DATE</code> / waktu valid di wrfout — nama file bisa menyesatkan.</li>
-        <li>Unit dan interval accum model vs observasi harus konsisten.</li>
-        <li>Dashboard tidak menjalankan WRF; hanya menampilkan skor yang sudah dihitung di DPU.</li>
-      </ul>
-    </section>
-
-    <p><a class="btn-bmkg" href="/verifikasi-inanwp/">← Kembali ke Dashboard</a></p>
+    <p><a class="btn-bmkg" href="/verifikasi-inanwp/">Kembali ke Dashboard</a></p>
   </main>
 
   <footer class="footer">

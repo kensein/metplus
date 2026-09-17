@@ -255,8 +255,8 @@ app.get("/api/runs", (_req, res) => {
   res.json({
     count: runs.length,
     latest: runs[0]?.run || null,
-    auto_update: false,
-    note: "Otomasi harian belum aktif. Dashboard hanya membaca output METplus yang sudah di-sync ke webpsi.",
+    auto_update: true,
+    note: "Otomasi aktif di DPU: hitung METplus lalu push ke webpsi (cron 01:30 UTC dan tiap 6 jam).",
     runs,
   });
 });
