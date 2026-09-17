@@ -180,7 +180,7 @@ function applyMethodUi() {
     maxLeadTime = 168;
     if (lt) { lt.max = 168; lt.step = 3; }
   }
-  updateLeadTimeLabel();
+  applyLeadTime(lt ? +lt.value : 12, { refresh: false });
 }
 
 const SCORE_METRICS = {
