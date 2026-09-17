@@ -52,10 +52,10 @@ pm2 startOrReload ecosystem.config.cjs
 Apache (sebelum catch-all):
 
 ```
-ProxyPass        /model-verification/api http://127.0.0.1:8020/api
-ProxyPassReverse /model-verification/api http://127.0.0.1:8020/api
-ProxyPass        /model-verification     http://127.0.0.1:3020/model-verification
-ProxyPassReverse /model-verification     http://127.0.0.1:3020/model-verification
+ProxyPass        /model-verification/api http://127.0.0.1:8028/api
+ProxyPassReverse /model-verification/api http://127.0.0.1:8028/api
+ProxyPass        /model-verification     http://127.0.0.1:3028/model-verification
+ProxyPassReverse /model-verification     http://127.0.0.1:3028/model-verification
 ```
 
 ## DPU

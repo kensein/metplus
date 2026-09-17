@@ -1,6 +1,6 @@
 /**
  * PM2 — Model Verification @ /model-verification (webpsi)
- * Ports: API 8020 · static 3020
+ * Ports: API 8028 · static 3028
  */
 const fs = require("fs");
 const path = require("path");
@@ -27,8 +27,8 @@ const env = {
   SERVE_READONLY: fileEnv.SERVE_READONLY || "true",
   STORE_BACKEND: fileEnv.STORE_BACKEND || "f32",
   BASE_PATH: fileEnv.BASE_PATH || "/model-verification",
-  API_PORT: fileEnv.API_PORT || "8020",
-  FRONTEND_PORT: fileEnv.FRONTEND_PORT || "3020",
+  API_PORT: fileEnv.API_PORT || "8028",
+  FRONTEND_PORT: fileEnv.FRONTEND_PORT || "3028",
   DEFAULT_METHOD: fileEnv.DEFAULT_METHOD || "harp",
 };
 
@@ -38,7 +38,7 @@ module.exports = {
       name: "model-verification-api",
       cwd: "/var/www/model-verification",
       script: ".venv/bin/python",
-      args: "-m uvicorn backend.main:app --host 127.0.0.1 --port 8020",
+      args: "-m uvicorn backend.main:app --host 127.0.0.1 --port 8028",
       instances: 1,
       exec_mode: "fork",
       autorestart: true,
@@ -54,7 +54,7 @@ module.exports = {
       autorestart: true,
       env: {
         ...env,
-        PORT: "3020",
+        PORT: "3028",
         STATIC_ROOT: "frontend",
         BASE_PATH: "/model-verification",
       },

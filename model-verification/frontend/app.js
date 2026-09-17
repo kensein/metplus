@@ -10,12 +10,12 @@ const BASE_PATH = (() => {
 const API = (() => {
   const { hostname, port } = window.location;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:8020';
+    return 'http://localhost:8028';
   }
   if (BASE_PATH) {
     return `${window.location.origin}${BASE_PATH}`;
   }
-  return port ? `${window.location.protocol}//${hostname}:8020` : `http://${hostname}:8020`;
+  return port ? `${window.location.protocol}//${hostname}:8028` : `http://${hostname}:8028`;
 })();
 
 const INIT_DASHES = [
