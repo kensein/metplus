@@ -280,10 +280,23 @@ code {
   border-radius: 10px;
 }
 
-.maps-gallery {
+.charts-grid {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
+}
+@media (min-width: 900px) {
+  .charts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.chart-box {
+  position: relative;
+  height: 260px;
+  padding: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fbff;
 }
 @media (min-width: 960px) {
   .maps-gallery {

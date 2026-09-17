@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Extract 3-hour precip (RAINNC diff) from wrfout into CF-ish NetCDF for GridStat."""
+"""Extract 3-hour total precip (RAINNC+RAINC+RAINSH) from wrfout for GridStat."""
 from __future__ import annotations
 
 import argparse
@@ -11,16 +11,45 @@ from netCDF4 import Dataset
 
 
 def parse_wrf_times(ds):
-    raw = ds.variables["Times"][:]
-    out = []
-    for row in raw:
-        if hasattr(row, "tobytes"):
-            s = row.tobytes().decode("ascii", "ignore")
-        else:
-            s = "".join(chr(int(c)) for c in row if int(c) > 0)
-        s = s.strip().replace("_", " ")
-        out.append(datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc))
-    return out
+    """Build UTC times from Times or XTIME + START_DATE."""
+    if "Times" in ds.variables:
+        raw = ds.variables["Times"][:]
+        out = []
+        for row in raw:
+            if hasattr(row, "tobytes"):
+                s = row.tobytes().decode("ascii", "ignore")
+            else:
+                s = "".join(chr(int(c)) for c in row if int(c) > 0)
+            s = s.strip().replace("_", " ")
+            out.append(datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc))
+        return out
+
+    if "XTIME" not in ds.variables:
+        raise SystemExit("wrfout has neither Times nor XTIME")
+    start_raw = None
+    for key in ("START_DATE", "SIMULATION_START_DATE"):
+        if key in ds.ncattrs():
+            start_raw = getattr(ds, key)
+            break
+    if not start_raw:
+        units = getattr(ds.variables["XTIME"], "units", "")
+        # minutes since YYYY-mm-dd HH:MM:SS
+        if "since" in units:
+            start_raw = units.split("since", 1)[1].strip().replace(" ", "_", 1)
+    if not start_raw:
+        raise SystemExit("Cannot determine START_DATE")
+    start = datetime.strptime(str(start_raw).strip(), "%Y-%m-%d_%H:%M:%S").replace(tzinfo=timezone.utc)
+    xt = np.array(ds.variables["XTIME"][:], dtype=float)
+    return [start + timedelta(minutes=float(m)) for m in xt]
+
+
+def total_rain(ds, idx):
+    """Accumulated total precip at time index: RAINNC + RAINC + RAINSH."""
+    total = np.array(ds.variables["RAINNC"][idx], dtype=np.float64)
+    for name in ("RAINC", "RAINSH"):
+        if name in ds.variables:
+            total = total + np.array(ds.variables[name][idx], dtype=np.float64)
+    return total.astype(np.float32)
 
 
 def main():
@@ -36,9 +65,15 @@ def main():
 
     ds = Dataset(args.wrfout)
     times = parse_wrf_times(ds)
-    rain = ds.variables["RAINNC"]
-    lat = np.array(ds.variables["XLAT"][0])
-    lon = np.array(ds.variables["XLONG"][0])
+    xlat = np.array(ds.variables["XLAT"][:])
+    xlon = np.array(ds.variables["XLONG"][:])
+    # WRF often has time dim on XLAT/XLONG
+    if xlat.ndim == 3:
+        lat = xlat[0]
+        lon = xlon[0]
+    else:
+        lat = xlat
+        lon = xlon
 
     try:
         i1 = times.index(end)
@@ -49,7 +84,7 @@ def main():
             f"({times[0]} .. {times[-1]}): {e}"
         )
 
-    precip = np.array(rain[i1], dtype=np.float32) - np.array(rain[i0], dtype=np.float32)
+    precip = total_rain(ds, i1) - total_rain(ds, i0)
     precip = np.maximum(precip, 0.0)
 
     out = Path(args.out)
@@ -57,15 +92,22 @@ def main():
     if out.exists():
         out.unlink()
 
-    # Prefer 1D lat/lon if lat/lon are constant along axes; else keep 2D
-    if np.allclose(lat[:, 0:1], lat) and np.allclose(lon[0:1, :], lon):
-        lat1 = lat[:, 0]
-        lon1 = lon[0, :]
+    use_1d = False
+    lat1 = lon1 = None
+    if lat.ndim == 1 and lon.ndim == 1:
         use_1d = True
+        lat1, lon1 = lat, lon
+    elif lat.ndim == 2 and lon.ndim == 2:
+        if np.allclose(lat[:, 0:1], lat) and np.allclose(lon[0:1, :], lon):
+            use_1d = True
+            lat1 = lat[:, 0]
+            lon1 = lon[0, :]
     else:
-        use_1d = False
+        raise SystemExit(f"Unexpected lat/lon shapes: {lat.shape} {lon.shape}")
 
-    nco = Dataset(out, "w", format="NETCDF4")
+    # NETCDF3_CLASSIC + CF attrs so MET opens via NETCDF_NCCF
+    nco = Dataset(out, "w", format="NETCDF3_CLASSIC")
+    nco.createDimension("time", 1)
     nco.createDimension("lat", precip.shape[0])
     nco.createDimension("lon", precip.shape[1])
     if use_1d:
@@ -79,15 +121,40 @@ def main():
         vlat[:] = lat
         vlon[:] = lon
     vlat.units = "degrees_north"
+    vlat.long_name = "latitude"
+    vlat.standard_name = "latitude"
     vlon.units = "degrees_east"
-    vp = nco.createVariable("precip", "f4", ("lat", "lon"), zlib=True)
+    vlon.long_name = "longitude"
+    vlon.standard_name = "longitude"
+
+    vtime = nco.createVariable("time", "f8", ("time",))
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    vtime[:] = [(end - epoch).total_seconds() / 60.0]
+    vtime.units = "minutes since 1970-01-01 00:00:00"
+    vtime.calendar = "gregorian"
+    vtime.standard_name = "time"
+    vtime.long_name = "valid time (end of accumulation)"
+
+    vp = nco.createVariable(
+        "precip", "f4", ("time", "lat", "lon"), fill_value=np.float32(-9999.0)
+    )
     vp.units = "mm"
-    vp.long_name = f"{args.hours}-hour precipitation accumulation ending {args.valid}"
-    vp[:] = precip
+    vp.long_name = (
+        f"{args.hours}-hour total precip (RAINNC+RAINC+RAINSH) ending {args.valid}"
+    )
+    vp.standard_name = "precipitation_amount"
+    vp.coordinates = "time lat lon"
+    vp[0, :, :] = precip
     nco.setncattr("valid", args.valid)
+    nco.setncattr("precip_components", "RAINNC+RAINC+RAINSH")
     nco.setncattr("source_wrfout", str(Path(args.wrfout).name))
+    nco.setncattr("title", "InaNWP 3h total precip from RAINNC+RAINC+RAINSH")
+    nco.setncattr("Conventions", "CF-1.6")
     nco.close()
-    print(f"OK wrote {out} shape={precip.shape} max={float(precip.max()):.3f}")
+    print(
+        f"OK wrote {out} shape={precip.shape} max={float(precip.max()):.3f} "
+        f"(RAINNC+RAINC+RAINSH)"
+    )
 
 
 if __name__ == "__main__":

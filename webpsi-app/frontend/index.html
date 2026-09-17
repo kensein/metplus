@@ -6,6 +6,7 @@
   <title>Verifikasi InaNWP — METplus | PSIMKG</title>
   <base href="/verifikasi-inanwp/" />
   <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <div class="topbar">
@@ -47,6 +48,17 @@
     </section>
 
     <section class="card panel">
+      <h3>Grafik skor vs lead time (H+3 … H+72)</h3>
+      <p class="muted" id="series-caption">Akumulasi hujan 3 jam, total precip InaNWP = RAINNC+RAINC+RAINSH.</p>
+      <div class="charts-grid">
+        <div class="chart-box"><canvas id="chart-rmse"></canvas></div>
+        <div class="chart-box"><canvas id="chart-me"></canvas></div>
+        <div class="chart-box"><canvas id="chart-csi"></canvas></div>
+        <div class="chart-box"><canvas id="chart-ets"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card panel">
       <h3>Daftar run tersimpan</h3>
       <p class="muted">Setiap folder valid di penyimpanan METplus menjadi satu entri histori.</p>
       <div class="table-wrap">
@@ -75,7 +87,7 @@
 
     <section class="card panel">
       <h3>File keluaran METplus</h3>
-      <p class="muted">File skor statistik dan file pasangan field spasial yang tersimpan di webpsi.</p>
+      <p class="muted">File skor (.txt / .stat) dan pasangan field spasial yang tersimpan di webpsi.</p>
       <div class="table-wrap">
         <table>
           <thead>
@@ -156,7 +168,7 @@
     </section>
 
     <section class="card panel">
-      <h3>Isi file statistik (mentah)</h3>
+      <h3>Isi file skor (.txt)</h3>
       <pre id="stat-raw" class="stat-raw">Memuat…</pre>
     </section>
   </main>

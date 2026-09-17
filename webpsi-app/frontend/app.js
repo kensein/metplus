@@ -5,7 +5,7 @@
   const MAP_META = {
     "fcst.png": {
       label: "Prakiraan (FCST)",
-      blurb: "Keluaran model InaNWP: akumulasi curah hujan 3 jam hingga waktu valid.",
+      blurb: "InaNWP total precip (RAINNC+RAINC+RAINSH), akumulasi 3 jam hingga waktu valid.",
     },
     "obs.png": {
       label: "Observasi (OBS)",
@@ -18,6 +18,7 @@
   };
 
   let currentRun = null;
+  const charts = {};
 
   function $(id) { return document.getElementById(id); }
 
@@ -83,6 +84,60 @@
     });
   }
 
+  function upsertChart(canvasId, label, labels, data, color) {
+    const canvas = $(canvasId);
+    if (!canvas || typeof Chart === "undefined") return;
+    if (charts[canvasId]) charts[canvasId].destroy();
+    charts[canvasId] = new Chart(canvas, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label,
+          data: data,
+          borderColor: color,
+          backgroundColor: color + "33",
+          tension: 0.2,
+          pointRadius: 3,
+          fill: false,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: "top" },
+          title: { display: false },
+        },
+        scales: {
+          x: { title: { display: true, text: "Lead time (jam)" } },
+          y: { title: { display: true, text: label } },
+        },
+      },
+    });
+  }
+
+  function renderSeries(series) {
+    const points = (series && series.points) || [];
+    const cap = $("series-caption");
+    if (!points.length) {
+      cap.textContent = "Belum ada seri H+3..H+72. Pipeline harian akan mengisi grafik setelah GSMAP tersedia.";
+      ["chart-rmse", "chart-me", "chart-csi", "chart-ets"].forEach(function (id) {
+        if (charts[id]) { charts[id].destroy(); delete charts[id]; }
+      });
+      return;
+    }
+    cap.textContent =
+      "Init " + (series.init || "—") +
+      " · " + points.length + " titik (step " + (series.accum_hours || 3) + " jam hingga H+" + (series.max_lead_hours || 72) + ")" +
+      " · precip " + (series.precip_source || "RAINNC+RAINC+RAINSH");
+    const labels = points.map(function (p) { return "H+" + p.lead_hours; });
+    upsertChart("chart-rmse", "RMSE (mm)", labels, points.map(function (p) { return p.rmse; }), "#0052A3");
+    upsertChart("chart-me", "ME / Bias (mm)", labels, points.map(function (p) { return p.me; }), "#c2410c");
+    upsertChart("chart-csi", "CSI (>0.1 mm)", labels, points.map(function (p) { return p.csi_0_1 || p["csi_0.1"]; }), "#0f766e");
+    upsertChart("chart-ets", "ETS (>0.1 mm)", labels, points.map(function (p) { return p.ets_0_1 || p["ets_0.1"]; }), "#7c3aed");
+  }
+
   function fillRunSelect(runsPayload) {
     const sel = $("run-select");
     const runs = runsPayload.runs || [];
@@ -92,7 +147,9 @@
         ">" + runLabel(r) + "</option>";
     }).join("");
     $("run-count").textContent = runs.length
-      ? (runs.length + " run tersimpan" + (runsPayload.auto_update ? " · otomasi push DPU aktif" : " · otomasi belum aktif"))
+      ? (runs.length + " run tersimpan" +
+        (runsPayload.series_points ? (" · seri " + runsPayload.series_points + " lead") : "") +
+        (runsPayload.auto_update ? " · otomasi push DPU aktif" : ""))
       : "Belum ada run";
   }
 
@@ -115,7 +172,7 @@
             "</td>" +
           "</tr>";
         }).join("")
-      : "<tr><td colspan='6' class='muted'>Belum ada histori. Jalankan METplus di DPU lalu sync ke webpsi.</td></tr>";
+      : "<tr><td colspan='6' class='muted'>Belum ada histori. Jalankan METplus di DPU lalu push ke webpsi.</td></tr>";
 
     $("runs-table").querySelectorAll("button[data-run]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -142,9 +199,9 @@
 
     explain.innerHTML =
       "<ul>" +
-        "<li><strong>Prakiraan (FCST)</strong>: keluaran model InaNWP untuk akumulasi hujan 3 jam hingga waktu valid di atas.</li>" +
+        "<li><strong>Prakiraan (FCST)</strong>: InaNWP total precip (RAINNC+RAINC+RAINSH), akumulasi 3 jam.</li>" +
         "<li><strong>Observasi (OBS)</strong>: estimasi hujan satelit GSMAP pada periode yang sama.</li>" +
-        "<li><strong>Selisih (DIFF)</strong>: FCST dikurangi OBS (mm). Nilai positif berarti prakiraan lebih basah; negatif berarti lebih kering.</li>" +
+        "<li><strong>Selisih (DIFF)</strong>: FCST dikurangi OBS (mm).</li>" +
       "</ul>";
 
     el.innerHTML = sortImages(set.images).map(function (img) {
@@ -165,10 +222,21 @@
 
   function renderFiles(files) {
     const rows = [];
+    (files.txt_files || []).forEach(function (f) {
+      rows.push(
+        "<tr>" +
+          "<td><span class='tag'>.txt</span></td>" +
+          "<td><code>" + f.name + "</code></td>" +
+          "<td>" + f.valid_dir + "</td>" +
+          "<td>" + fmtBytes(f.size_bytes) + "</td>" +
+          "<td><a href='" + f.download_url + "'>Unduh</a></td>" +
+        "</tr>"
+      );
+    });
     (files.stat_files || []).forEach(function (f) {
       rows.push(
         "<tr>" +
-          "<td><span class='tag'>statistik</span></td>" +
+          "<td><span class='tag'>.stat</span></td>" +
           "<td><code>" + f.name + "</code></td>" +
           "<td>" + f.valid_dir + "</td>" +
           "<td>" + fmtBytes(f.size_bytes) + "</td>" +
@@ -248,11 +316,12 @@
     const statusEl = $("status");
     const errEl = $("error");
     try {
-      const [summary, stats, files, runsPayload, raw] = await Promise.all([
+      const [summary, stats, files, runsPayload, series, raw] = await Promise.all([
         getJson(API_BASE + "/summary" + q(run)),
         getJson(API_BASE + "/stats" + q(run)),
         getJson(API_BASE + "/files" + q(run)),
         getJson(API_BASE + "/runs"),
+        getJson(API_BASE + "/series"),
         fetch(API_BASE + "/stat-raw" + q(run), { credentials: "same-origin" }).then(function (r) {
           return r.ok ? r.text() : Promise.reject(new Error("stat-raw " + r.status));
         }),
@@ -261,12 +330,16 @@
       currentRun = summary.run || run || runsPayload.latest;
       fillRunSelect(runsPayload);
       renderRunsTable(runsPayload);
+      renderSeries(series);
 
       const validInfo = describeValid(summary.valid, summary.accum_hours || 3);
       $("m-status").textContent = summary.status || "READY";
       $("m-updated").textContent = "Diperbarui: " + (summary.generated_at || "—");
       $("m-valid").textContent = validInfo.label;
-      $("m-accum").textContent = validInfo.windowText;
+      $("m-accum").textContent =
+        (summary.lead_hours != null ? ("H+" + summary.lead_hours + " · ") : "") +
+        validInfo.windowText +
+        (summary.precip_source ? (" · " + summary.precip_source) : "");
       $("m-pairs").textContent = fmt(summary.matched_pairs, 0);
       $("m-rmse").textContent = fmt(summary.metrics && summary.metrics.rmse);
 
@@ -279,9 +352,9 @@
 
       statusEl.textContent =
         "Run " + (currentRun || "—") +
-        " · " + (summary.n_stat_files || 0) + " file skor · " +
-        (summary.n_pairs_files || 0) + " file pasangan grid · " +
-        (runsPayload.count || 0) + " run histori";
+        (summary.lead_hours != null ? (" · H+" + summary.lead_hours) : "") +
+        " · " + (summary.n_txt_files || 0) + " .txt · " +
+        (series.n_points || 0) + " titik grafik";
       errEl.hidden = true;
     } catch (e) {
       statusEl.textContent = "Gagal memuat API";

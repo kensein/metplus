@@ -58,6 +58,20 @@ function findStatFiles() {
   return out;
 }
 
+function findTxtFiles() {
+  const root = path.join(DATA_DIR, "gridstat");
+  if (!fs.existsSync(root)) return [];
+  const out = [];
+  for (const dir of fs.readdirSync(root).sort()) {
+    const full = path.join(root, dir);
+    if (!fs.statSync(full).isDirectory()) continue;
+    for (const f of fs.readdirSync(full).sort()) {
+      if (f.endsWith(".txt")) out.push(path.join(full, f));
+    }
+  }
+  return out;
+}
+
 function findPairsFiles() {
   const root = path.join(DATA_DIR, "gridstat");
   if (!fs.existsSync(root)) return [];
@@ -252,37 +266,60 @@ app.get("/api/health", (_req, res) => {
 
 app.get("/api/runs", (_req, res) => {
   const runs = buildRunSummaries();
+  const series = readJsonSafe("dashboard/series.json");
   res.json({
     count: runs.length,
     latest: runs[0]?.run || null,
     auto_update: true,
-    note: "Otomasi aktif di DPU: sehari sekali (01:30 UTC), hitung METplus lalu push ke webpsi.",
+    note: "Otomasi aktif di DPU: sehari sekali, verifikasi 3 jam hingga H+72 (RAINNC+RAINC+RAINSH), push ke webpsi.",
+    precip_source: series?.precip_source || "RAINNC+RAINC+RAINSH",
+    series_points: series?.n_points || 0,
+    series_init: series?.init || null,
     runs,
   });
+});
+
+app.get("/api/series", (_req, res) => {
+  const series = readJsonSafe("dashboard/series.json");
+  if (!series) {
+    return res.json({
+      n_points: 0,
+      points: [],
+      precip_source: "RAINNC+RAINC+RAINSH",
+      note: "Belum ada seri H+3..H+72. Menunggu pipeline harian DPU.",
+    });
+  }
+  res.json(series);
 });
 
 app.get("/api/summary", (req, res) => {
   const run = resolveRun(String(req.query.run || ""));
   const summary = readJsonSafe("dashboard/summary.json") || readJsonSafe("summary.json");
+  const runMeta = run ? readJsonSafe(path.join("gridstat", run, "run_meta.json")) : null;
   const statFiles = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
   const pairsFiles = filterByRun(findPairsFiles(), run, (f) => path.basename(path.dirname(f)));
+  const txtFiles = filterByRun(findTxtFiles(), run, (f) => path.basename(path.dirname(f)));
   const records = statFiles.flatMap(parseStatFile);
   const cnt = records.filter((r) => r.line_type === "CNT");
   const cts = records.filter((r) => r.line_type === "CTS");
   const maps = listMaps().filter((m) => !run || m.valid_dir === run);
   const mapMeta = maps[0]?.meta;
-  const useGlobalSummary = !run || (summary?.valid && String(summary.valid).includes(String(run).slice(0, 8)));
+  const meta = runMeta || summary || {};
   res.json({
     run,
-    generated_at: (useGlobalSummary && summary?.generated_at) || new Date().toISOString(),
-    model: summary?.model || "INANWP",
-    observation: summary?.observation || "GSMAP NRT",
-    status: (useGlobalSummary && summary?.status) || (statFiles.length ? "READY" : "NO_DATA"),
-    matched_pairs: (useGlobalSummary && summary?.matched_pairs) || cnt[0]?.total || null,
-    valid: mapMeta?.valid || (useGlobalSummary && summary?.valid) || run,
-    accum_hours: summary?.accum_hours || 3,
-    note: (useGlobalSummary && summary?.note) || null,
+    generated_at: meta.generated_at || new Date().toISOString(),
+    model: meta.model || "INANWP",
+    observation: meta.observation || "GSMAP NRT",
+    status: meta.status || (statFiles.length ? "READY" : "NO_DATA"),
+    matched_pairs: meta.matched_pairs || cnt[0]?.total || null,
+    valid: meta.valid || mapMeta?.valid || run,
+    accum_hours: meta.accum_hours || 3,
+    precip_source: meta.precip_source || "RAINNC+RAINC+RAINSH",
+    lead_hours: meta.lead_hours ?? null,
+    init: meta.init || null,
+    note: meta.note || null,
     n_stat_files: statFiles.length,
+    n_txt_files: txtFiles.length,
     n_pairs_files: pairsFiles.length,
     n_map_sets: maps.length,
     n_records: records.length,
@@ -298,6 +335,7 @@ app.get("/api/summary", (req, res) => {
     },
     files: {
       stat: statFiles.map((f) => path.relative(DATA_DIR, f)),
+      txt: txtFiles.map((f) => path.relative(DATA_DIR, f)),
       pairs: pairsFiles.map((f) => path.relative(DATA_DIR, f)),
     },
   });
@@ -316,9 +354,11 @@ app.get("/api/files", (req, res) => {
     run,
     data_dir: DATA_DIR,
     stat_files: filterByRun(findStatFiles().map(fileInfo), run, (f) => f.valid_dir),
+    txt_files: filterByRun(findTxtFiles().map(fileInfo), run, (f) => f.valid_dir),
     pairs_files: filterByRun(findPairsFiles().map(fileInfo), run, (f) => f.valid_dir),
     maps: listMaps().filter((m) => !run || m.valid_dir === run),
     summary_exists: !!(readJsonSafe("dashboard/summary.json") || readJsonSafe("summary.json")),
+    series_exists: !!readJsonSafe("dashboard/series.json"),
   });
 });
 
@@ -340,7 +380,7 @@ app.get("/api/maps/:valid/:file", (req, res) => {
 app.get("/api/download", (req, res) => {
   const abs = safeDataPath(String(req.query.path || ""));
   if (!abs) return res.status(404).json({ error: "not found" });
-  const allowed = [".stat", ".nc", ".json", ".log", ".png"];
+  const allowed = [".stat", ".txt", ".nc", ".json", ".log", ".png"];
   if (!allowed.some((ext) => abs.endsWith(ext))) {
     return res.status(403).json({ error: "file type not allowed" });
   }
@@ -349,12 +389,16 @@ app.get("/api/download", (req, res) => {
 
 app.get("/api/stat-raw", (req, res) => {
   const run = resolveRun(String(req.query.run || ""));
-  const files = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
-  if (!files.length) return res.status(404).type("text").send("no .stat files");
-  let target = files[0];
+  const txtFiles = filterByRun(findTxtFiles(), run, (f) => path.basename(path.dirname(f)));
+  const statFiles = filterByRun(findStatFiles(), run, (f) => path.basename(path.dirname(f)));
+  const preferTxt = txtFiles.find((f) => f.endsWith(".stat.txt")) || txtFiles.find((f) => path.basename(f).startsWith("scores_"));
+  let target = preferTxt || statFiles[0];
+  if (!target) return res.status(404).type("text").send("no .txt/.stat files");
   if (req.query.path) {
     const abs = safeDataPath(String(req.query.path));
-    if (!abs || !abs.endsWith(".stat")) return res.status(404).type("text").send("not found");
+    if (!abs || !(abs.endsWith(".stat") || abs.endsWith(".txt"))) {
+      return res.status(404).type("text").send("not found");
+    }
     target = abs;
   }
   res.type("text/plain").send(fs.readFileSync(target, "utf8"));

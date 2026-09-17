@@ -43,7 +43,7 @@
         </div></div>
         <div class="step"><div class="step-num">2</div><div>
           <strong>Samakan field</strong>
-          <div class="muted">Hujan model dari akumulasi RAINNC diubah ke interval 3 jam. GSMAP rainrate dijumlah pada interval yang sama.</div>
+          <div class="muted">Hujan model total = RAINNC+RAINC+RAINSH, diubah ke interval 3 jam. GSMAP rainrate dijumlah pada interval yang sama. Verifikasi dijalankan tiap 3 jam hingga H+72.</div>
         </div></div>
         <div class="step"><div class="step-num">3</div><div>
           <strong>RegridDataPlane</strong>
@@ -92,7 +92,8 @@
     <section class="card panel method-block">
       <h3>4. File keluaran METplus</h3>
       <ul>
-        <li><code>*.stat</code>: tabel skor ASCII (CNT, CTS, CTC, dan lainnya)</li>
+        <li><code>*.txt</code>: salinan skor GridStat (dan ringkasan scores_*.txt) untuk dashboard</li>
+        <li><code>*.stat</code>: tabel skor ASCII MET (CNT, CTS, CTC, dan lainnya)</li>
         <li><code>*_pairs.nc</code>: field prakiraan, observasi, dan selisih untuk peta</li>
       </ul>
     </section>
