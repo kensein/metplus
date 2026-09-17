@@ -61,10 +61,10 @@ def plot_rain(lon, lat, data, title, outfile, kind="rain"):
         norm = TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
         pcm = ax.pcolormesh(LON, LAT, np.ma.masked_invalid(data), cmap="RdBu_r", norm=norm, shading="auto")
         cbar = fig.colorbar(pcm, ax=ax, pad=0.02)
-        cbar.set_label("FCST − OBS (mm)")
+        cbar.set_label("Prakiraan − observasi (mm)")
     ax.set_title(title, fontsize=12, pad=8)
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
+    ax.set_xlabel("Bujur")
+    ax.set_ylabel("Lintang")
     ax.set_xlim(float(lon.min()), float(lon.max()))
     ax.set_ylim(float(lat.min()), float(lat.max()))
     ax.set_aspect("equal", adjustable="box")
@@ -88,9 +88,9 @@ def render_one(nc_path: Path, out_dir: Path, valid_label: str | None = None):
     diff = clean(ds.variables[diff_name][:])
     valid = valid_label or out_dir.name
     out_dir.mkdir(parents=True, exist_ok=True)
-    plot_rain(lon, lat, fcst, f"InaNWP FCST — precip 3h ({valid})", out_dir / "fcst.png")
-    plot_rain(lon, lat, obs, f"GSMAP OBS — precip 3h ({valid})", out_dir / "obs.png")
-    plot_rain(lon, lat, diff, f"DIFF (FCST − OBS) — precip 3h ({valid})", out_dir / "diff.png", kind="diff")
+    plot_rain(lon, lat, fcst, f"Prakiraan InaNWP: akumulasi hujan 3 jam ({valid})", out_dir / "fcst.png")
+    plot_rain(lon, lat, obs, f"Observasi GSMAP: akumulasi hujan 3 jam ({valid})", out_dir / "obs.png")
+    plot_rain(lon, lat, diff, f"Selisih: prakiraan dikurangi observasi ({valid})", out_dir / "diff.png", kind="diff")
     meta = {
         "valid": valid,
         "source_nc": nc_path.name,

@@ -1,6 +1,22 @@
 (function () {
   const API_BASE = "/verifikasi-inanwp/api";
 
+  const MAP_ORDER = ["fcst.png", "obs.png", "diff.png"];
+  const MAP_META = {
+    "fcst.png": {
+      label: "Prakiraan (FCST)",
+      blurb: "Keluaran model InaNWP: akumulasi curah hujan 3 jam hingga waktu valid.",
+    },
+    "obs.png": {
+      label: "Observasi (OBS)",
+      blurb: "Estimasi hujan satelit GSMAP pada interval 3 jam yang sama.",
+    },
+    "diff.png": {
+      label: "Selisih (DIFF)",
+      blurb: "Prakiraan dikurangi observasi. Merah: model lebih basah; biru: model lebih kering.",
+    },
+  };
+
   function $(id) { return document.getElementById(id); }
 
   function fmt(v, digits) {
@@ -19,30 +35,82 @@
     return (n / (1024 * 1024)).toFixed(2) + " MB";
   }
 
+  /** Parse METplus-ish valid token like 20260615_15Z → readable ID + window. */
+  function describeValid(validRaw, accumHours) {
+    const raw = String(validRaw || "");
+    const m = raw.match(/^(\d{4})(\d{2})(\d{2})[_ ]?(\d{2})Z?$/i);
+    const hours = accumHours || 3;
+    if (!m) {
+      return {
+        label: raw || "—",
+        windowText: hours + " jam akumulasi",
+      };
+    }
+    const y = m[1], mo = m[2], d = m[3], hh = parseInt(m[4], 10);
+    const end = new Date(Date.UTC(+y, +mo - 1, +d, hh, 0, 0));
+    const start = new Date(end.getTime() - hours * 3600 * 1000);
+    function stamp(dt) {
+      const dd = String(dt.getUTCDate()).padStart(2, "0");
+      const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const yy = dt.getUTCFullYear();
+      const h = String(dt.getUTCHours()).padStart(2, "0");
+      return dd + "/" + mm + "/" + yy + " " + h + ".00 UTC";
+    }
+    return {
+      label: stamp(end),
+      windowText:
+        "Akumulasi " + hours + " jam: " + stamp(start) + " sampai " + stamp(end),
+    };
+  }
+
   async function getJson(url) {
     const res = await fetch(url, { credentials: "same-origin" });
     if (!res.ok) throw new Error(url + " → HTTP " + res.status);
     return res.json();
   }
 
-  function renderMaps(maps) {
+  function sortImages(images) {
+    return (images || []).slice().sort(function (a, b) {
+      const ia = MAP_ORDER.indexOf(a.name);
+      const ib = MAP_ORDER.indexOf(b.name);
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+  }
+
+  function renderMaps(maps, summary) {
     const el = $("maps-gallery");
+    const explain = $("maps-explain");
     if (!maps || !maps.length || !maps[0].images || !maps[0].images.length) {
-      el.innerHTML = "<p class='muted'>Belum ada peta. Generate dari <code>*_pairs.nc</code> dengan <code>scripts/render_pairs_maps.py</code>.</p>";
+      el.innerHTML = "<p class='muted'>Belum ada peta. Hasilkan dulu dari file pasangan grid NetCDF.</p>";
+      explain.innerHTML = "";
       return;
     }
     const set = maps[0];
     const meta = set.meta || {};
+    const validInfo = describeValid(meta.valid || summary.valid || set.valid_dir, summary.accum_hours || 3);
     $("maps-caption").textContent =
-      "Valid " + (meta.valid || set.valid_dir) +
+      validInfo.windowText +
       " · grid " + (meta.shape ? meta.shape.join("×") : "—") +
       " · sumber " + (meta.source_nc || "pairs.nc");
-    el.innerHTML = set.images.map(function (img) {
+
+    explain.innerHTML =
+      "<ul>" +
+        "<li><strong>Prakiraan (FCST)</strong> — keluaran model InaNWP untuk akumulasi hujan 3 jam hingga waktu valid di atas.</li>" +
+        "<li><strong>Observasi (OBS)</strong> — estimasi hujan satelit GSMAP pada periode yang sama.</li>" +
+        "<li><strong>Selisih (DIFF)</strong> — FCST dikurangi OBS (mm). Nilai positif: prakiraan lebih basah; negatif: lebih kering.</li>" +
+      "</ul>";
+
+    const images = sortImages(set.images);
+    el.innerHTML = images.map(function (img) {
+      const info = MAP_META[img.name] || { label: img.label, blurb: "" };
       return (
         "<figure class='map-card'>" +
-          "<figcaption>" + img.label + "</figcaption>" +
+          "<figcaption>" +
+            "<strong>" + info.label + "</strong>" +
+            (info.blurb ? "<span>" + info.blurb + "</span>" : "") +
+          "</figcaption>" +
           "<a href='" + img.url + "' target='_blank' rel='noopener'>" +
-            "<img src='" + img.url + "' alt='" + img.label + "' loading='lazy' />" +
+            "<img src='" + img.url + "' alt='" + info.label + "' loading='lazy' />" +
           "</a>" +
         "</figure>"
       );
@@ -54,28 +122,28 @@
     (files.stat_files || []).forEach(function (f) {
       rows.push(
         "<tr>" +
-          "<td><span class='tag'>.stat</span></td>" +
+          "<td><span class='tag'>statistik</span></td>" +
           "<td><code>" + f.name + "</code></td>" +
           "<td>" + f.valid_dir + "</td>" +
           "<td>" + fmtBytes(f.size_bytes) + "</td>" +
-          "<td><a href='" + f.download_url + "'>Download</a></td>" +
+          "<td><a href='" + f.download_url + "'>Unduh</a></td>" +
         "</tr>"
       );
     });
     (files.pairs_files || []).forEach(function (f) {
       rows.push(
         "<tr>" +
-          "<td><span class='tag tag-nc'>_pairs.nc</span></td>" +
+          "<td><span class='tag tag-nc'>pasangan grid</span></td>" +
           "<td><code>" + f.name + "</code></td>" +
           "<td>" + f.valid_dir + "</td>" +
           "<td>" + fmtBytes(f.size_bytes) + "</td>" +
-          "<td><a href='" + f.download_url + "'>Download</a></td>" +
+          "<td><a href='" + f.download_url + "'>Unduh</a></td>" +
         "</tr>"
       );
     });
     $("files-table").innerHTML = rows.length
       ? rows.join("")
-      : "<tr><td colspan='5' class='muted'>Belum ada file .stat / _pairs.nc di data/metplus/gridstat.</td></tr>";
+      : "<tr><td colspan='5' class='muted'>Belum ada file keluaran METplus di penyimpanan webpsi.</td></tr>";
   }
 
   function renderCnt(records) {
@@ -143,14 +211,15 @@
         }),
       ]);
 
+      const validInfo = describeValid(summary.valid, summary.accum_hours || 3);
       $("m-status").textContent = summary.status || "READY";
-      $("m-updated").textContent = "Update: " + (summary.generated_at || "—");
-      $("m-valid").textContent = summary.valid || "—";
-      $("m-accum").textContent = summary.accum_hours ? (summary.accum_hours + " jam accum") : "—";
+      $("m-updated").textContent = "Diperbarui: " + (summary.generated_at || "—");
+      $("m-valid").textContent = validInfo.label;
+      $("m-accum").textContent = validInfo.windowText;
       $("m-pairs").textContent = fmt(summary.matched_pairs, 0);
       $("m-rmse").textContent = fmt(summary.metrics && summary.metrics.rmse);
 
-      renderMaps(files.maps);
+      renderMaps(files.maps, summary);
       renderFiles(files);
       renderCnt(stats.records);
       renderCts(stats.records);
@@ -158,9 +227,9 @@
       $("stat-raw").textContent = raw;
 
       statusEl.textContent =
-        "Data OK · " +
-        (summary.n_stat_files || 0) + " .stat · " +
-        (summary.n_pairs_files || 0) + " pairs.nc · " +
+        "Data siap · " +
+        (summary.n_stat_files || 0) + " file skor · " +
+        (summary.n_pairs_files || 0) + " file pasangan grid · " +
         (summary.n_map_sets || 0) + " set peta";
       errEl.hidden = true;
     } catch (e) {
