@@ -92,7 +92,7 @@
         ">" + runLabel(r) + "</option>";
     }).join("");
     $("run-count").textContent = runs.length
-      ? (runs.length + " run tersimpan" + (runsPayload.auto_update ? "" : " · otomasi harian belum aktif"))
+      ? (runs.length + " run tersimpan" + (runsPayload.auto_update ? " · otomasi push DPU aktif" : " · otomasi belum aktif"))
       : "Belum ada run";
   }
 
