@@ -528,17 +528,37 @@ function scoresQuery(extra = '') {
 
 async function refreshAll() {
   const tab = document.querySelector('.tab.active')?.dataset.tab;
-  if (tab === 'overview') await loadOverview();
-  if (tab === 'scores') await loadScores();
-  if (tab === 'map') await loadMap();
-  if (tab === 'spatial') await loadSpatial();
-  if (tab === 'method') await loadMethodology();
-  if (tab === 'station') await loadStationDetail();
+  try {
+    if (tab === 'overview') await loadOverview();
+    if (tab === 'scores') await loadScores();
+    if (tab === 'map') await loadMap();
+    if (tab === 'spatial') await loadSpatial();
+    if (tab === 'method') await loadMethodology();
+    if (tab === 'station') await loadStationDetail();
+  } catch (e) {
+    console.error('refreshAll', tab, e);
+    const host = document.querySelector('.panel.active') || document.getElementById('overview');
+    if (host) {
+      const box = document.createElement('div');
+      box.className = 'error';
+      box.style.cssText = 'margin:1rem;padding:0.75rem;border:1px solid #fca5a5;background:#fef2f2;color:#991b1b;border-radius:8px;';
+      box.textContent = `Gagal memuat tab ${tab || '?'}: ${e.message || e}`;
+      host.prepend(box);
+    }
+  }
+  requestAnimationFrame(() => {
+    rankingChart?.redraw();
+    scoreChart?.redraw();
+    stationChart?.redraw();
+    stationMap?.invalidateSize?.();
+  });
 }
 
 async function loadOverview() {
+  const cards = document.getElementById('rankingCards');
+  const kpis = document.getElementById('kpiGrid');
   if (!requireModels('rankingCards', '<em>Centang minimal satu model di sidebar.</em>')) {
-    document.getElementById('kpiGrid').innerHTML = '';
+    if (kpis) kpis.innerHTML = '';
     rankingChart?.setBar({ title: 'Pilih model', yLabel: 'RMSE', labels: ['—'], values: [0], colors: ['#e2e8f0'] });
     return;
   }
@@ -546,33 +566,67 @@ async function loadOverview() {
   const init = selectedInitTime();
   const rankQ = methodQ(`models=${modelsQuery()}&score=rmse${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
 
-  const [ranking, scores] = await Promise.all([
-    api(`/api/verification/ranking?${rankQ}`),
-    api(`/api/verification/scores?${scoresQuery(`&lead_time=${lt}`)}`),
-  ]);
+  let ranking = { ranking: [] };
+  let scores = { scores: [] };
+  try {
+    ranking = await api(`/api/verification/ranking?${rankQ}`);
+  } catch (e) {
+    if (cards) cards.innerHTML = `<em>Gagal ranking: ${e.message}</em>`;
+    throw e;
+  }
+  try {
+    scores = await api(`/api/verification/scores?${scoresQuery(`&lead_time=${lt}`)}`);
+  } catch (e) {
+    // Jangan gagalkan ranking hanya karena lead tertentu kosong
+    console.warn('scores lead', lt, e);
+    try {
+      scores = await api(`/api/verification/scores?${scoresQuery()}`);
+    } catch (e2) {
+      console.warn('scores all', e2);
+    }
+  }
 
-  document.getElementById('rankingCards').innerHTML = ranking.ranking.map(r => `
-    <div class="rank-card rank-${r.rank}">
-      <div class="rank-num">#${r.rank}</div>
-      <div class="model-name">${r.model} ${modelBadge(r.model)}</div>
-      <div class="metric">Mean RMSE: <strong>${(r.mean_rmse ?? r.mean_score)?.toFixed?.(3) ?? r.mean_rmse ?? r.mean_score}</strong>${r.mean_mae != null ? ` · MAE: ${r.mean_mae?.toFixed(3)}` : ''}</div>
-      <div class="metric">${r.mean_bias != null ? `Bias: ${r.mean_bias?.toFixed(3)} · ` : ''}Metode: ${selectedMethod().toUpperCase()} · N leads: ${r.n_leads ?? '—'}</div>
-    </div>`).join('');
+  const rows = ranking.ranking || [];
+  if (!rows.length) {
+    if (cards) cards.innerHTML = '<em>Belum ada ranking untuk metode/model ini.</em>';
+  } else {
+    cards.innerHTML = rows.map(r => {
+      const rmse = r.mean_rmse ?? r.mean_score;
+      const rmseTxt = (typeof rmse === 'number' && Number.isFinite(rmse)) ? rmse.toFixed(3) : '—';
+      const maeTxt = (typeof r.mean_mae === 'number') ? r.mean_mae.toFixed(3) : null;
+      const biasTxt = (typeof r.mean_bias === 'number') ? r.mean_bias.toFixed(3) : null;
+      return `<div class="rank-card rank-${r.rank || 1}">
+        <div class="rank-num">#${r.rank || 1}</div>
+        <div class="model-name">${r.model} ${modelBadge(r.model)}</div>
+        <div class="metric">Mean RMSE: <strong>${rmseTxt}</strong>${maeTxt != null ? ` · MAE: ${maeTxt}` : ''}</div>
+        <div class="metric">${biasTxt != null ? `Bias: ${biasTxt} · ` : ''}Metode: ${selectedMethod().toUpperCase()}${r.n_leads != null ? ` · N leads: ${r.n_leads}` : ''}</div>
+      </div>`;
+    }).join('');
+  }
 
-  rankingChart.setBar({
+  rankingChart?.setBar({
     title: `Ranking ${selectedMethod().toUpperCase()} — Mean RMSE (semakin kecil semakin baik)`,
     yLabel: 'Mean RMSE',
-    labels: ranking.ranking.map(r => r.model),
-    values: ranking.ranking.map(r => r.mean_rmse ?? r.mean_score ?? 0),
+    labels: rows.map(r => r.model),
+    values: rows.map(r => {
+      const v = r.mean_rmse ?? r.mean_score ?? 0;
+      return (typeof v === 'number' && Number.isFinite(v)) ? v : 0;
+    }),
     colors: ['#00529B', '#64748b', '#94a3b8', '#cbd5e1'],
   });
+  rankingChart?.redraw();
 
-  document.getElementById('kpiGrid').innerHTML = scores.scores.map(s => `
-    <div class="kpi">
-      <div class="label">${s.model} · ${formatLeadTime(s.lead_time)}</div>
-      <div class="value">RMSE ${s.rmse?.toFixed?.(2) ?? s.rmse}</div>
-      <div class="label">Bias ${s.bias?.toFixed?.(2) ?? '—'} · MAE ${s.mae?.toFixed?.(2) ?? '—'} · CSI ${s.csi?.toFixed?.(2) ?? '—'} · N=${s.n_cases}</div>
-    </div>`).join('');
+  const scoreRows = scores.scores || [];
+  if (kpis) {
+    kpis.innerHTML = scoreRows.length
+      ? scoreRows.map(s => `
+        <div class="kpi">
+          <div class="label">${s.model} · ${formatLeadTime(s.lead_time)}</div>
+          <div class="value">RMSE ${typeof s.rmse === 'number' ? s.rmse.toFixed(2) : '—'}</div>
+          <div class="label">Bias ${typeof s.bias === 'number' ? s.bias.toFixed(2) : '—'} · MAE ${typeof s.mae === 'number' ? s.mae.toFixed(2) : '—'} · CSI ${typeof s.csi === 'number' ? s.csi.toFixed(2) : '—'} · N=${s.n_cases ?? '—'}</div>
+        </div>`).join('')
+      : '<em class="hint">Tidak ada skor untuk lead time ini — geser lead atau buka tab Scores vs Lead Time.</em>';
+  }
 }
 
 async function loadSpatial() {
@@ -590,7 +644,6 @@ async function loadSpatial() {
       gal.innerHTML = '<em>Belum ada peta METplus. Jalankan pipeline DPU lalu sync maps/.</em>';
       return;
     }
-    // show latest few
     const latest = maps.slice(-6).reverse();
     gal.innerHTML = latest.map(m => {
       const fcst = m.files['fcst.png'] ? `${API}/api/metplus/maps/${m.valid}/fcst.png` : '';
@@ -613,33 +666,49 @@ async function loadSpatial() {
 async function loadScores() {
   const metric = selectedScoreMetric();
   const metricLabel = SCORE_METRICS[metric]?.label || metric;
+  const detail = document.getElementById('scoreDetail');
   if (!selectedModels().length) {
-    scoreChart.setLines({ title: 'Centang minimal satu model', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    scoreChart?.setLines({ title: 'Centang minimal satu model', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
     return;
   }
-  const param = document.getElementById('parameter').value;
-  const data = await api(`/api/verification/scores?${scoresQuery()}`);
+  let data;
+  try {
+    data = await api(`/api/verification/scores?${scoresQuery()}`);
+  } catch (e) {
+    if (detail) detail.innerHTML = `<span style="color:#b91c1c">Gagal load scores: ${e.message}</span>`;
+    scoreChart?.setLines({ title: 'Gagal memuat skor', xLabel: 'Lead Time (jam)', yLabel: metricLabel, xNumeric: true, series: [] });
+    return;
+  }
   const series = selectedModels().map(m => {
-    const pts = data.scores.filter(s => s.model === m).sort((a, b) => a.lead_time - b.lead_time);
+    const pts = (data.scores || []).filter(s => s.model === m).sort((a, b) => a.lead_time - b.lead_time);
     return {
       name: m,
       color: MODEL_COLORS[m] || '#00529B',
       x: pts.map(p => p.lead_time),
-      y: pts.map(p => p[metric]),
+      y: pts.map(p => {
+        const v = p[metric];
+        return (typeof v === 'number' && Number.isFinite(v)) ? v : null;
+      }),
       extra: pts.map(p => ({
-        rmse: p.rmse, bias: p.bias, mae: p.mae, n_cases: p.n_cases,
-        correlation: p.correlation, stde: p.stde,
+        rmse: p.rmse, bias: p.bias, mae: p.mae, stde: p.stde,
+        correlation: p.correlation, csi: p.csi, ets: p.ets, n_cases: p.n_cases,
       })),
     };
   });
-
-  scoreChart.setLines({
-    title: `${metricLabel} vs Lead Time (D+0 → D+${maxLeadTime / 24}) — ${paramsMeta[param]?.label}`,
+  scoreChart?.setLines({
+    title: `${metricLabel} vs Lead Time — ${selectedMethod().toUpperCase()} · ${document.getElementById('parameter').selectedOptions[0]?.text || ''}`,
     xLabel: 'Lead Time (jam)',
     yLabel: metricLabel,
     xNumeric: true,
     series,
   });
+  scoreChart?.redraw();
+  if (detail) {
+    const n = (data.scores || []).length;
+    detail.innerHTML = n
+      ? `Memuat ${n} titik skor (${selectedMethod().toUpperCase()}). Klik titik pada grafik untuk detail.`
+      : '<em>Tidak ada titik skor. Pastikan pipeline DPU sudah dijalankan dan artifact ter-sync.</em>';
+  }
 }
 
 async function ensureMapBulk() {
