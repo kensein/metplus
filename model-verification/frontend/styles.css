@@ -53,6 +53,11 @@ header h1 { margin: 0; font-size: 1.35rem; color: var(--accent); font-weight: 70
     radial-gradient(ellipse 70% 45% at 90% 100%, #e0f2fe 0%, transparent 50%),
     var(--bg);
 }
+.flow-gate[hidden],
+#appLayout[hidden],
+#verifierGate[hidden] {
+  display: none !important;
+}
 .flow-inner {
   width: min(860px, 100%);
 }
