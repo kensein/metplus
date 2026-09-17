@@ -121,8 +121,10 @@ def scores_frame(
     method: str = "metplus",
 ) -> pd.DataFrame:
     """Normalize series*.json points → rows like HARP scores_frame."""
-    if parameter and parameter not in (METPLUS_PARAM, "precip", "rainfall_6h_rrr", "rainfall_last_mm"):
-        return pd.DataFrame()
+    # METplus v1 hanya precip_3h — parameter HARP yang tersisa di UI diabaikan
+    if parameter and parameter not in (METPLUS_PARAM, "precip", "rainfall_6h_rrr", "rainfall_last_mm", None, ""):
+        # jangan kosongkan: coerce ke precip agar UI lama tidak 404
+        parameter = METPLUS_PARAM
     want = models or list(MODELS)
     method = normalize_method(method)
     init_tag = None
@@ -272,3 +274,92 @@ def cycles(model: str | None = None, method: str = "metplus") -> list[dict[str, 
                 "method": method,
             })
     return rows
+
+
+def _parse_valid_iso(yyyymmdd_hhmmss: str) -> str | None:
+    s = str(yyyymmdd_hhmmss or "").strip()
+    if len(s) >= 15 and "_" in s:
+        d, t = s.split("_", 1)
+        if len(d) == 8 and len(t) >= 6:
+            return f"{d[0:4]}-{d[4:6]}-{d[6:8]}T{t[0:2]}:{t[2:4]}:{t[4:6]}Z"
+    if len(s) == 10 and s.isdigit():
+        return f"{s[0:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:00:00Z"
+    return None
+
+
+def station_point_series(station_id: str, model: str = "InaNWP") -> dict[str, Any]:
+    """Baca MPR PointStat untuk satu stasiun → obs + satu init series (fcst per lead)."""
+    root = metplus_root()
+    pt_roots = [root / "models" / model / "pointstat", root / "pointstat"]
+    sid = str(station_id).strip()
+    by_init: dict[str, list[dict[str, Any]]] = {}
+    obs_by_valid: dict[str, float] = {}
+
+    for pt_root in pt_roots:
+        if not pt_root.is_dir():
+            continue
+        found_any = False
+        for run_dir in sorted(pt_root.glob("*")):
+            if not run_dir.is_dir():
+                continue
+            meta = _read_json(run_dir / "run_meta.json") or {}
+            init = str(meta.get("init") or "")
+            lead = meta.get("lead_hours")
+            valid_tag = meta.get("valid_yyyymmddhh") or run_dir.name
+            stat_files = sorted(run_dir.glob("*.stat"))
+            if not stat_files:
+                continue
+            hit = False
+            for line in stat_files[0].read_text(errors="replace").splitlines():
+                parts = line.split()
+                if "MPR" not in parts:
+                    continue
+                i = parts.index("MPR")
+                if len(parts) < i + 10:
+                    continue
+                if str(parts[i + 3]) != sid:
+                    continue
+                try:
+                    fcst = float(parts[i + 8]) if parts[i + 8] not in ("NA",) else None
+                    obs = float(parts[i + 9]) if parts[i + 9] not in ("NA",) else None
+                except ValueError:
+                    continue
+                valid_raw = parts[4] if len(parts) > 4 else f"{valid_tag[:8]}_{valid_tag[8:]}0000"
+                valid_iso = _parse_valid_iso(valid_raw) or _parse_valid_iso(f"{valid_tag}0000")
+                if not valid_iso:
+                    continue
+                hit = True
+                if obs is not None:
+                    obs_by_valid[valid_iso] = obs
+                if init:
+                    by_init.setdefault(init, []).append({
+                        "valid_time": valid_iso,
+                        "lead_time": int(lead) if lead is not None else None,
+                        "fcst": fcst,
+                        "obs": obs,
+                        "err": (fcst - obs) if fcst is not None and obs is not None else None,
+                    })
+            if hit:
+                found_any = True
+        if found_any:
+            break
+
+    inits = []
+    for init, pts in sorted(by_init.items()):
+        pts_sorted = sorted(pts, key=lambda r: (r.get("lead_time") is None, r.get("lead_time") or 0, r["valid_time"]))
+        inits.append({
+            "init_time": init,
+            "model": model,
+            "points": [{"valid_time": p["valid_time"], "lead_time": p["lead_time"], "fcst": p["fcst"]} for p in pts_sorted],
+            "table": pts_sorted,
+        })
+    obs = [{"valid_time": k, "obs": v} for k, v in sorted(obs_by_valid.items())]
+    return {
+        "station_id": sid,
+        "parameter": METPLUS_PARAM,
+        "method": "metplus_point",
+        "obs": obs,
+        "inits": inits,
+        "n_inits": len(inits),
+        "n_obs": len(obs),
+    }

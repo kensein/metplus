@@ -10,7 +10,7 @@ const BASE_PATH = (() => {
 const API = (() => {
   const { hostname, port } = window.location;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
-    return 'http://localhost:8028';
+    return 'http://127.0.0.1:8028';
   }
   if (BASE_PATH) {
     return `${window.location.origin}${BASE_PATH}`;
@@ -514,9 +514,11 @@ function bindEvents() {
     }
     mapBulkCache.key = '';
     stationDetailCache.key = '';
+    // clear sticky error banners from previous method
+    document.querySelectorAll('.panel .error').forEach(el => el.remove());
     try {
       await loadModelSources();
-      await refreshParameterOptions();
+      await reloadParameters();  // MUST reload /api/parameters?method=… (bukan hanya refresh options)
       await loadCycles();
       await refreshAll();
     } catch (e) {
@@ -563,12 +565,17 @@ function bindEvents() {
 
 function scoresQuery(extra = '') {
   const init = selectedInitTime();
-  const base = methodQ(`models=${modelsQuery()}&parameter=${document.getElementById('parameter').value}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
+  let param = document.getElementById('parameter').value;
+  if (isMetplusMethod() && param && !['precip_3h', 'precip', 'rainfall_6h_rrr', 'rainfall_last_mm'].includes(param)) {
+    param = 'precip_3h';
+  }
+  const base = methodQ(`models=${modelsQuery()}&parameter=${param}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
   return extra ? `${base}${extra.startsWith('&') ? extra : `&${extra}`}` : base;
 }
 
 async function refreshAll() {
   const tab = document.querySelector('.tab.active')?.dataset.tab;
+  document.querySelectorAll('.panel .error').forEach(el => el.remove());
   try {
     if (tab === 'overview') await loadOverview();
     if (tab === 'scores') await loadScores();
@@ -865,7 +872,7 @@ async function showStationMapDetail(st) {
 function stationDetailQuery() {
   const months = document.getElementById('stationRangeMonths')?.value || 3;
   const init = selectedInitTime();
-  let q = `parameter=${document.getElementById('parameter').value}&models=${modelsQuery()}&series_mode=by_init&months=${months}`;
+  let q = methodQ(`parameter=${document.getElementById('parameter').value}&models=${modelsQuery()}&series_mode=by_init&months=${months}`);
   if (init) q += `&init_time=${encodeURIComponent(init)}`;
   return q;
 }
@@ -891,6 +898,17 @@ function renderStationFromCache() {
   const param = document.getElementById('parameter').value;
   const stationId = document.getElementById('stationSelect').value;
   const months = +document.getElementById('stationRangeMonths')?.value || 3;
+  const paramLabel = paramsMeta[param]?.label || data.meta?.label || param;
+  const paramUnit = paramsMeta[param]?.unit || data.meta?.unit || '';
+
+  if (data.note && !(data.inits || []).length && !(data.obs || []).length && !(data.series || []).length) {
+    stationChart.setLines({
+      title: `${data.station?.name || stationId} — ${selectedMethod().toUpperCase()}`,
+      xLabel: 'Waktu valid (WIB)', yLabel: '', xNumeric: true, xTime: true, series: [],
+    });
+    document.getElementById('stationTable').innerHTML = `<em>${data.note}</em>`;
+    return;
+  }
 
   if (data.series_mode === 'by_init' || data.inits) {
     const obsPts = downsamplePoints(data.obs || [], 900);
@@ -908,7 +926,6 @@ function renderStationFromCache() {
       const n = dashIdxByModel[run.model] || 0;
       dashIdxByModel[run.model] = n + 1;
       const pts = downsamplePoints(run.points || [], 200);
-      // Tooltip: model + init. Legend: nama model saja.
       const tip = `${run.model} · init ${formatTimeWIB(run.init_time)}`;
       series.push({
         name: tip,
@@ -916,7 +933,6 @@ function renderStationFromCache() {
         color: MODEL_COLORS[run.model] || '#00529B',
         dash: INIT_DASHES[n % INIT_DASHES.length],
         marker: INIT_MARKERS[n % INIT_MARKERS.length],
-        // Terbaru lebih tebal & pekat; lama lebih tipis/transparan + dash beda
         alpha: Math.max(0.4, 1 - n * 0.12),
         width: n === 0 ? 2.4 : 1.6,
         markers: true,
@@ -927,24 +943,27 @@ function renderStationFromCache() {
     });
 
     stationChart.setLines({
-      title: `${data.station.name || stationId} — ${paramsMeta[param]?.label} · ${months} bln · per init cycle`,
+      title: `${data.station.name || stationId} — ${paramLabel} · ${data.method === 'metplus_point' ? 'PointStat' : `${months} bln`} · per init cycle`,
       xLabel: 'Waktu valid (WIB)',
-      yLabel: paramsMeta[param]?.unit || '',
+      yLabel: paramUnit,
       xNumeric: true,
       xTime: true,
       series,
     });
 
+    const obsMap = Object.fromEntries((data.obs || []).map(o => [o.valid_time, o.obs]));
     const flat = [];
     for (const run of inits) {
-      for (const p of run.points || []) {
+      const rows = run.table || run.points || [];
+      for (const p of rows) {
+        const obs = p.obs != null ? p.obs : obsMap[p.valid_time];
         flat.push({
           valid_time: p.valid_time,
           init_time: run.init_time,
           model: run.model,
           lead_time: p.lead_time,
           fcst: p.fcst,
-          obs: p.obs,
+          obs,
         });
       }
     }
@@ -952,11 +971,12 @@ function renderStationFromCache() {
 
     if (!flat.length && !obsPts.length) {
       document.getElementById('stationTable').innerHTML =
-        `<em>Belum ada data untuk stasiun/parameter ini (window ${months} bulan).</em>`;
+        `<em>${data.note || `Belum ada data untuk stasiun/parameter ini (window ${months} bulan).`}</em>`;
       return;
     }
 
-    let html = `<p class="lt-note">${inits.length} init cycle · ${obsPts.length}+ titik obs · ${flat.length} titik fcst · ${formatTimeWIB(data.date_from)} → ${formatTimeWIB(data.date_to)}</p>`;
+    let html = data.note ? `<p class="lt-note">${data.note}</p>` : '';
+    html += `<p class="lt-note">${inits.length} init cycle · ${obsPts.length}+ titik obs · ${flat.length} titik fcst</p>`;
     html += '<div class="table-scroll"><table class="station-ts-table"><thead><tr><th>Valid (WIB)</th><th>Init</th><th>Model</th><th>Lead</th><th>Fcst</th><th>Obs</th><th>Err</th></tr></thead><tbody>';
     const tableRows = flat.slice(-200);
     tableRows.forEach(r => {

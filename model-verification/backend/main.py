@@ -598,9 +598,55 @@ def station_detail(
     lead_time: int | None = Query(None),
     months: int = Query(3, ge=1, le=12),
     series_mode: str = Query("by_init", pattern="^(by_init|by_lead)$"),
+    method: str | None = Query(None),
 ) -> dict[str, Any]:
     """Time series stasiun: by_init = garis per init cycle (semua lead);
     by_lead = slice lead time tetap (legacy)."""
+    m = _method(method)
+    model_list = [x.strip() for x in models.split(",") if x.strip()]
+
+    if _is_metplus(m):
+        from backend.services.station_catalog import load_station_catalog
+        catalog = {str(r.get("wmo_id")): r for r in load_station_catalog()}
+        station_info = catalog.get(str(station_id), {"station_id": station_id, "wmo_id": station_id})
+        if "station_id" not in station_info:
+            station_info = {**station_info, "station_id": station_id, "name": station_info.get("name")}
+
+        if m != "metplus_point":
+            return {
+                "station": station_info,
+                "parameter": ms.METPLUS_PARAM,
+                "series_mode": "by_init",
+                "months": months,
+                "obs": [],
+                "inits": [],
+                "method": m,
+                "source": "metplus",
+                "note": (
+                    "Tab Detail Stasiun untuk METplus grid/FSS/MODE belum punya time-series per stasiun. "
+                    "Pilih metode <strong>METplus — PointStat</strong> (atau HARP) untuk melihat detail stasiun."
+                ),
+            }
+
+        model = model_list[0] if model_list else "InaNWP"
+        payload = ms.station_point_series(station_id, model=model)
+        inits = payload.get("inits") or []
+        if init_time:
+            tag = str(init_time).replace("-", "").replace("T", "").replace(":", "").replace("Z", "")[:10]
+            inits = [x for x in inits if str(x.get("init_time", "")).startswith(tag) or str(x.get("init_time")) == str(init_time)]
+        return {
+            "station": station_info,
+            "parameter": ms.METPLUS_PARAM,
+            "meta": ms.METPLUS_PARAM_META,
+            "series_mode": "by_init",
+            "months": months,
+            "obs": payload.get("obs") or [],
+            "inits": inits,
+            "method": "metplus_point",
+            "source": "metplus-pointstat-mpr",
+            "note": "PointStat MPR: InaNWP precip 3 jam vs GSMAP di lokasi stasiun (seluruh lead H+3…H+72 per init).",
+        }
+
     from backend.services.artifacts import (
         build_station_calendar_live,
         load_station_calendar_cache,
@@ -608,7 +654,6 @@ def station_detail(
         window_bounds,
     )
 
-    model_list = [m.strip() for m in models.split(",") if m.strip()]
     lt = int(lead_time if lead_time is not None else 12)
     date_from, date_to = window_bounds(months)
 
