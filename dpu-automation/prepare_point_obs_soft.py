@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Build MET point-obs ASCII from BMKG Soft / Sinoptik JSON (sama sumber HARP).
 
-Tidak memakai GSMaP yang di-sample di lat/lon stasiun.
-Obs = rainfall Soft per stasiun pada valid time (prefer rainfall_last_mm,
-sama field yang dipakai HARP).
+Multi-parameter: field names = HARP VERIFY_PARAMETERS ids (match fcst NC
+from prepare_point_fcst_surface.py). Tidak memakai GSMaP sample di lat/lon.
 """
 from __future__ import annotations
 
@@ -16,6 +15,18 @@ from pathlib import Path
 
 # Soft sentinel (selaras backend/services/obs_qc.py)
 SENTINELS = {8888.0, 9999.0, -9999.0, 99999.0, -8888.0}
+
+# HARP Soft params that PointStat verifies (overlap with wrfout surface)
+POINTSTAT_PARAMS = [
+    "temp_drybulb_c_tttttt",
+    "temp_dewpoint_c_tdtdtd",
+    "relative_humidity_pc",
+    "pressure_qff_mb_derived",
+    "pressure_qfe_mb_derived",
+    "wind_speed_ff",
+    "wind_dir_deg_dd",
+    "rainfall_last_mm",
+]
 
 
 def load_stations(path: Path) -> dict[str, dict]:
@@ -58,13 +69,11 @@ def resolve_sid(rec: dict, stations: dict[str, dict]) -> str:
     return ""
 
 
-
 def flatten_records(raw):
     """Minimal flatten — selaras monas/obs_format untuk dict & list-of-list."""
     if raw is None:
         return []
     if isinstance(raw, dict):
-        # export wrapper dari fetch_obs_local
         if "records" in raw and isinstance(raw["records"], list):
             return flatten_records(raw["records"])
         for key in ("data", "results", "items", "observations", "rows"):
@@ -75,7 +84,6 @@ def flatten_records(raw):
         return []
     if isinstance(raw[0], dict):
         return raw
-    # list-of-list 105 cols — butuh SINOPTIK_PARAMETERS; fallback skip
     return []
 
 
@@ -99,9 +107,13 @@ def parse_ts(val) -> datetime | None:
     return dt.astimezone(timezone.utc)
 
 
-def soft_precip(rec: dict) -> float | None:
-    """Ambil nilai hujan Soft — prioritas sama keluarga HARP rainfall_last_mm."""
-    for key in ("rainfall_last_mm", "rainfall_6h_rrr", "rainfall_24h_rrrr"):
+def soft_value(rec: dict, param: str) -> float | None:
+    """Extract one Soft numeric field with HARP-like QC."""
+    keys = [param]
+    # light aliases / fallbacks
+    if param == "rainfall_last_mm":
+        keys = ["rainfall_last_mm", "rainfall_6h_rrr", "rainfall_24h_rrrr"]
+    for key in keys:
         v = rec.get(key)
         if v in (None, "", "-"):
             continue
@@ -111,14 +123,20 @@ def soft_precip(rec: dict) -> float | None:
             continue
         if not math.isfinite(fv) or fv in SENTINELS:
             continue
-        # Soft kadang kirim 888.0 / 999.0 sebagai missing ringan
-        if fv >= 888.0:
+        if param.startswith("rainfall") and fv >= 888.0:
             continue
-        return max(0.0, fv)
+        # Soft wind speed sometimes in knots-ish outliers; keep finite values
+        if param == "relative_humidity_pc" and (fv < 0 or fv > 105):
+            continue
+        if param == "wind_dir_deg_dd":
+            fv = fv % 360.0
+        if param.startswith("rainfall"):
+            fv = max(0.0, fv)
+        return fv
     return None
 
 
-def load_soft_obs(paths: list[Path]) -> list[dict]:
+def load_soft_obs(paths: list[Path], params: list[str]) -> list[dict]:
     rows = []
     for p in paths:
         raw = json.loads(p.read_text(encoding="utf-8"))
@@ -128,19 +146,29 @@ def load_soft_obs(paths: list[Path]) -> list[dict]:
             dt = parse_ts(rec.get("data_timestamp") or rec.get("valid_time") or rec.get("timestamp"))
             if not dt:
                 continue
-            precip = soft_precip(rec)
-            if precip is None:
+            vals = {}
+            for param in params:
+                fv = soft_value(rec, param)
+                if fv is not None:
+                    vals[param] = fv
+            if not vals:
                 continue
-            rows.append({"rec": rec, "dt": dt, "precip": precip, "ir": rec.get("rainfall_indicator_ir")})
+            rows.append({"rec": rec, "dt": dt, "vals": vals})
     return rows
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Soft/Sinoptik → MET met_point ASCII for PointStat")
+    ap = argparse.ArgumentParser(description="Soft/Sinoptik → MET met_point ASCII (multi-param)")
     ap.add_argument("--soft-json", nargs="+", required=True, help="sinoptik_*.json (HARP obs_export)")
     ap.add_argument("--stations", required=True, help="stations_bmkg.json")
-    ap.add_argument("--valid", required=True, help="YYYYMMDDHH (end of 3h window)")
+    ap.add_argument("--valid", required=True, help="YYYYMMDDHH")
     ap.add_argument("--out-ascii", required=True)
+    ap.add_argument(
+        "--params",
+        nargs="+",
+        default=POINTSTAT_PARAMS,
+        help="HARP param ids to emit (default: surface set)",
+    )
     ap.add_argument("--tolerance-min", type=int, default=0, help="match obs within ±N minutes of valid")
     args = ap.parse_args()
 
@@ -159,7 +187,8 @@ def main() -> int:
 
     valid = datetime.strptime(args.valid, "%Y%m%d%H").replace(tzinfo=timezone.utc)
     tol = abs(int(args.tolerance_min))
-    rows = load_soft_obs(paths)
+    params = list(args.params)
+    rows = load_soft_obs(paths, params)
 
     by_sid: dict[str, dict] = {}
     for r in rows:
@@ -174,20 +203,22 @@ def main() -> int:
             by_sid[sid] = {**r, "sid": sid}
 
     lines = []
-    values = []
+    counts: dict[str, int] = {p: 0 for p in params}
     matched_catalog = 0
     for sid, r in sorted(by_sid.items()):
         st = stations.get(sid)
         if not st or sid == "_by_name":
             continue
         matched_catalog += 1
-        v = float(r["precip"])
-        values.append(v)
-        lines.append(
-            f"ADPSFC {sid} {valid.strftime('%Y%m%d_%H%M%S')} "
-            f"{st['lat']:.5f} {st['lon']:.5f} {st['elev']:.1f} "
-            f"precip 0 0 0 {v:.4f}"
-        )
+        for param, v in r["vals"].items():
+            if param not in params:
+                continue
+            counts[param] = counts.get(param, 0) + 1
+            lines.append(
+                f"ADPSFC {sid} {valid.strftime('%Y%m%d_%H%M%S')} "
+                f"{st['lat']:.5f} {st['lon']:.5f} {st['elev']:.1f} "
+                f"{param} 0 0 0 {float(v):.4f}"
+            )
 
     out = Path(args.out_ascii)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -195,17 +226,17 @@ def main() -> int:
     meta = {
         "wrote": str(out),
         "observation": "BMKG_SOFT",
-        "field": "rainfall_last_mm(+fallback 6h/24h)",
-        "valid": args.valid,
-        "n_stations": len(lines),
+        "parameters": params,
+        "n_lines": len(lines),
+        "n_stations": matched_catalog,
         "n_soft_hits": len(by_sid),
-        "n_in_catalog": matched_catalog,
-        "mean_precip": float(sum(values) / len(values)) if values else None,
+        "counts_by_param": counts,
+        "valid": args.valid,
         "soft_files": [str(p) for p in paths],
     }
     print(json.dumps(meta, indent=2))
     if not lines:
-        print("ERROR: no Soft precip matched valid time", file=sys.stderr)
+        print("ERROR: no Soft values matched valid time", file=sys.stderr)
         return 1
     return 0
 

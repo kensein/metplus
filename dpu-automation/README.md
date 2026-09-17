@@ -7,7 +7,7 @@ Scripts di folder ini di-deploy ke `dpu@192.168.15.139:~/apps/verifikasi-inanwp`
 | Script | Output | Deskripsi |
 |--------|--------|-----------|
 | `run_one_valid.sh` | `gridstat/` + `maps/` | GridStat spasial |
-| `run_pointstat_valid.sh` | `pointstat/` | PointStat vs **BMKG Soft/Sinoptik** (sama obs HARP) |
+| `run_pointstat_valid.sh` | `pointstat/` | PointStat vs **BMKG Soft/Sinoptik** multi-param (HARP Soft: temp/RH/QFF/wind/hujan) |
 | `run_fss_mode_valid.sh` | `fss/` + `mode/` | FSS neighborhood + MODE objects |
 | `export_series.py` | `dashboard/series*.json` | Export ranking/grafik |
 | `wipe_metplus.sh` | — | Hapus kalkulasi lama |

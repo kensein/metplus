@@ -98,9 +98,16 @@ for row in "${PLAN[@]:1}"; do
 
   if [[ "$RUN_POINTSTAT" == "1" ]]; then
     PT_DIR="$HOME/data/metplus/pointstat/$VALID"
+    NEED_PT=1
     if [[ "$FORCE_RERUN" != "1" && -f "$PT_DIR/run_meta.json" ]] && ls "$PT_DIR"/*.stat >/dev/null 2>&1; then
-      echo "skip pointstat existing H+${LEAD}"
-    else
+      if grep -q '"multi_param": true' "$PT_DIR/run_meta.json" 2>/dev/null; then
+        echo "skip pointstat existing multi-param H+${LEAD}"
+        NEED_PT=0
+      else
+        echo "re-run pointstat (upgrade to multi-param) H+${LEAD}"
+      fi
+    fi
+    if [[ "$NEED_PT" == "1" ]]; then
       bash "$ROOT/run_pointstat_valid.sh" "$VALID" "$WRFOUT" "$LEAD" "$INIT" || echo "WARN pointstat failed H+${LEAD}"
     fi
   fi

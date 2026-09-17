@@ -28,6 +28,23 @@ METPLUS_PARAM_META = {
     "category": "continuous",
 }
 
+# PointStat Soft multi-param — HARP Soft ids that wrfout surface can verify
+POINTSTAT_PARAMS = [
+    "temp_drybulb_c_tttttt",
+    "temp_dewpoint_c_tdtdtd",
+    "relative_humidity_pc",
+    "pressure_qff_mb_derived",
+    "pressure_qfe_mb_derived",
+    "wind_speed_ff",
+    "wind_dir_deg_dd",
+    "rainfall_last_mm",
+]
+
+POINTSTAT_PARAM_ALIASES = {
+    "precip_3h": "rainfall_last_mm",
+    "precip": "rainfall_last_mm",
+}
+
 METHOD_SERIES = {
     "metplus": "series.json",
     "metplus_point": "series_point.json",
@@ -121,12 +138,21 @@ def scores_frame(
     method: str = "metplus",
 ) -> pd.DataFrame:
     """Normalize series*.json points → rows like HARP scores_frame."""
-    # METplus v1 hanya precip_3h — parameter HARP yang tersisa di UI diabaikan
-    if parameter and parameter not in (METPLUS_PARAM, "precip", "rainfall_6h_rrr", "rainfall_last_mm", None, ""):
-        # jangan kosongkan: coerce ke precip agar UI lama tidak 404
-        parameter = METPLUS_PARAM
-    want = models or list(MODELS)
     method = normalize_method(method)
+    # PointStat: keep HARP Soft param ids; GridStat/FSS/MODE: precip_3h only
+    if method == "metplus_point":
+        param = POINTSTAT_PARAM_ALIASES.get(parameter or "", parameter) or None
+        if param and param not in POINTSTAT_PARAMS and param != METPLUS_PARAM:
+            # unknown → empty (jangan coerce ke hujan)
+            return pd.DataFrame()
+        if param == METPLUS_PARAM:
+            param = "rainfall_last_mm"
+    else:
+        param = METPLUS_PARAM
+        if parameter and parameter not in (METPLUS_PARAM, "precip", "rainfall_6h_rrr", "rainfall_last_mm", None, ""):
+            parameter = METPLUS_PARAM
+
+    want = models or list(MODELS)
     init_tag = None
     if init_time:
         init_tag = str(init_time).replace("-", "").replace("T", "").replace(":", "").replace("Z", "")[:10]
@@ -143,17 +169,24 @@ def scores_frame(
             lt = int(p.get("lead_hours") or p.get("lead_time") or 0)
             if lead_time is not None and lt != int(lead_time):
                 continue
+            row_param = p.get("parameter") or METPLUS_PARAM
+            if row_param == "precip":
+                row_param = "rainfall_last_mm"
+            if method == "metplus_point":
+                if param and row_param != param:
+                    continue
+                out_param = row_param
+            else:
+                out_param = METPLUS_PARAM
             rmse = p.get("rmse")
             me = p.get("me")
             mae = p.get("mae")
             fss = p.get("fss") or p.get("fss_1.0")
-            # For FSS method, surface FSS as primary "score" and also as correlation-like field
             if method == "metplus_fss" and rmse is None and fss is not None:
-                # keep rmse empty; UI can select csi/ets/fss via metric mapping
                 pass
             rows.append({
                 "model": model,
-                "parameter": METPLUS_PARAM,
+                "parameter": out_param,
                 "init_time": init,
                 "lead_time": lt,
                 "bias": me,
@@ -178,9 +211,9 @@ def scores_frame(
     return pd.DataFrame(rows).sort_values(["lead_time", "model"]).reset_index(drop=True)
 
 
-def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse", method: str = "metplus") -> dict[str, Any]:
+def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse", method: str = "metplus", parameter: str | None = None) -> dict[str, Any]:
     method = normalize_method(method)
-    df = scores_frame(models=models, init_time=init_time, method=method)
+    df = scores_frame(models=models, init_time=init_time, method=method, parameter=parameter)
     if df.empty:
         return {}
     # Prefer method-specific default metric
@@ -210,11 +243,12 @@ def ranking_payload(models: list[str], init_time: str | None, score: str = "rmse
             "score": mean_v,
             "n_leads": int(len(g)),
             "metric": metric,
+            "parameter": parameter or (g["parameter"].iloc[0] if "parameter" in g.columns else None),
         })
     ranking.sort(key=lambda r: (r["mean_score"] is None, -(r["mean_score"] or 0) if higher_better else (r["mean_score"] or 0)))
     for i, r in enumerate(ranking, 1):
         r["rank"] = i
-    return {"score_metric": metric, "init_time": init_time, "method": method, "ranking": ranking}
+    return {"score_metric": metric, "init_time": init_time, "method": method, "parameter": parameter, "ranking": ranking}
 
 
 def spatial_maps(model: str = "InaNWP", valid: str | None = None) -> dict[str, Any]:
@@ -287,11 +321,14 @@ def _parse_valid_iso(yyyymmdd_hhmmss: str) -> str | None:
     return None
 
 
-def station_point_series(station_id: str, model: str = "InaNWP") -> dict[str, Any]:
+def station_point_series(station_id: str, model: str = "InaNWP", parameter: str | None = None) -> dict[str, Any]:
     """Baca MPR PointStat untuk satu stasiun → obs + satu init series (fcst per lead)."""
     root = metplus_root()
     pt_roots = [root / "models" / model / "pointstat", root / "pointstat"]
     sid = str(station_id).strip()
+    want = POINTSTAT_PARAM_ALIASES.get(parameter or "", parameter) if parameter else None
+    if want == METPLUS_PARAM:
+        want = "rainfall_last_mm"
     by_init: dict[str, list[dict[str, Any]]] = {}
     obs_by_valid: dict[str, float] = {}
 
@@ -319,6 +356,15 @@ def station_point_series(station_id: str, model: str = "InaNWP") -> dict[str, An
                     continue
                 if str(parts[i + 3]) != sid:
                     continue
+                fcst_var = parts[9] if len(parts) > 9 else ""
+                if fcst_var == "precip":
+                    fcst_var = "rainfall_last_mm"
+                if want:
+                    # legacy single-field STAT used name precip
+                    if want == "rainfall_last_mm" and fcst_var in ("precip", "rainfall_last_mm", ""):
+                        pass
+                    elif fcst_var != want:
+                        continue
                 try:
                     fcst = float(parts[i + 8]) if parts[i + 8] not in ("NA",) else None
                     obs = float(parts[i + 9]) if parts[i + 9] not in ("NA",) else None
@@ -337,6 +383,7 @@ def station_point_series(station_id: str, model: str = "InaNWP") -> dict[str, An
                         "lead_time": int(lead) if lead is not None else None,
                         "fcst": fcst,
                         "obs": obs,
+                        "parameter": fcst_var or want,
                         "err": (fcst - obs) if fcst is not None and obs is not None else None,
                     })
             if hit:
@@ -356,7 +403,8 @@ def station_point_series(station_id: str, model: str = "InaNWP") -> dict[str, An
     obs = [{"valid_time": k, "obs": v} for k, v in sorted(obs_by_valid.items())]
     return {
         "station_id": sid,
-        "parameter": METPLUS_PARAM,
+        "model": model,
+        "parameter": want or "rainfall_last_mm",
         "method": "metplus_point",
         "obs": obs,
         "inits": inits,

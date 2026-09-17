@@ -192,7 +192,7 @@ def list_methods() -> dict[str, Any]:
             "id": "metplus_point",
             "label": "PointStat (stasiun)",
             "domain": "point",
-            "description": "PointStat InaNWP vs GSMAP di seluruh stasiun BMKG (precip 3 jam)",
+            "description": "PointStat InaNWP vs Soft/Sinoptik BMKG (multi-param = HARP Soft)",
         },
         {
             "id": "metplus_fss",
@@ -373,6 +373,45 @@ def model_sources(method: str | None = Query(None)) -> dict[str, Any]:
 @app.get("/api/parameters")
 def list_parameters(method: str | None = Query(None)) -> dict[str, Any]:
     m = _method(method)
+    if m == "metplus_point":
+        # PointStat Soft — selaras HARP Soft surface set (yang ada di wrfout)
+        series = ms.load_series("InaNWP", method="metplus_point") or {}
+        avail = list(series.get("parameters") or ms.POINTSTAT_PARAMS)
+        # normalize legacy precip name
+        avail = [("rainfall_last_mm" if p == "precip" else p) for p in avail]
+        for p in ms.POINTSTAT_PARAMS:
+            if p not in avail:
+                avail.append(p)
+        verify = {
+            k: dict(VERIFY_PARAMETERS[k])
+            for k in avail
+            if k in VERIFY_PARAMETERS
+        }
+        # rainfall_last_mm always in Soft PointStat
+        if "rainfall_last_mm" in verify:
+            verify["rainfall_last_mm"] = {
+                **verify["rainfall_last_mm"],
+                "label": "Curah Hujan Terakhir (≈3 jam Soft)",
+            }
+        return {
+            "verify_parameters": verify,
+            "available_by_model": {mod: list(avail) for mod in MODELS},
+            "unavailable_notes": {
+                "InaNWP": {
+                    "cloud_cover_oktas_m": "Tidak ada CLDFRA/TCDC di wrfout InaNWP ini",
+                    "rainfall_6h_rrr": "Soft jarang terisi per jam; PointStat pakai rainfall_last_mm",
+                    "rainfall_24h_rrrr": "Soft jarang terisi per jam; PointStat pakai rainfall_last_mm",
+                    "temp_max_c_txtxtx": "Tidak ada T2MAX di wrfout",
+                    "temp_min_c_tntntn": "Tidak ada T2MIN di wrfout",
+                    "temp_wetbulb_c": "Tidak ada wbpt di wrfout",
+                    "visibility_vv": "Tidak ada visibility di wrfout",
+                    "pressure_reading_mb": "Soft hampir kosong",
+                },
+            },
+            "models": MODELS,
+            "max_lead_time_hours": 72,
+            "method": m,
+        }
     if _is_metplus(m):
         return {
             "verify_parameters": {ms.METPLUS_PARAM: ms.METPLUS_PARAM_META},
@@ -503,13 +542,23 @@ def verification_scores(
             models=model_list, parameter=parameter or ms.METPLUS_PARAM,
             init_time=init_time, lead_time=lead_time, method=m,
         )
-        meta = ms.METPLUS_PARAM_META
         if df.empty:
             raise HTTPException(
                 status_code=404,
                 detail=f"Belum ada skor {m} — jalankan pipeline DPU / sync series.json",
             )
-        return {"parameter": ms.METPLUS_PARAM, "meta": meta, "scores": _scores_to_list(df), "method": m}
+        out_param = parameter
+        if m == "metplus_point":
+            out_param = ms.POINTSTAT_PARAM_ALIASES.get(parameter or "", parameter) or (
+                df["parameter"].iloc[0] if "parameter" in df.columns else "rainfall_last_mm"
+            )
+            if out_param == ms.METPLUS_PARAM:
+                out_param = "rainfall_last_mm"
+            meta = VERIFY_PARAMETERS.get(out_param, {"label": out_param, "unit": "", "category": "continuous"})
+        else:
+            out_param = ms.METPLUS_PARAM
+            meta = ms.METPLUS_PARAM_META
+        return {"parameter": out_param, "meta": meta, "scores": _scores_to_list(df), "method": m}
 
     if USE_F32_STORE:
         df = hs.scores_frame(models=model_list, parameter=parameter, init_time=init_time, lead_time=lead_time)
@@ -536,9 +585,9 @@ def verification_ranking(
     model_list = [m.strip() for m in models.split(",") if m.strip()]
     m = _method(method)
     if _is_metplus(m):
-        payload = ms.ranking_payload(model_list, init_time=init_time, score=score, method=m)
+        payload = ms.ranking_payload(model_list, init_time=init_time, score=score, method=m, parameter=parameter)
         if not payload:
-            return {"score_metric": score, "init_time": init_time, "method": m, "ranking": []}
+            return {"score_metric": score, "init_time": init_time, "method": m, "ranking": [], "parameter": parameter}
         return payload
     if USE_F32_STORE:
         payload = hs.ranking_payload(model_list, init_time=init_time, score=score, parameter=parameter)
@@ -645,22 +694,29 @@ def station_detail(
             }
 
         model = model_list[0] if model_list else "InaNWP"
-        payload = ms.station_point_series(station_id, model=model)
+        param = ms.POINTSTAT_PARAM_ALIASES.get(parameter or "", parameter) or "rainfall_last_mm"
+        if param == ms.METPLUS_PARAM:
+            param = "rainfall_last_mm"
+        payload = ms.station_point_series(station_id, model=model, parameter=param)
         inits = payload.get("inits") or []
         if init_time:
             tag = str(init_time).replace("-", "").replace("T", "").replace(":", "").replace("Z", "")[:10]
             inits = [x for x in inits if str(x.get("init_time", "")).startswith(tag) or str(x.get("init_time")) == str(init_time)]
+        meta = VERIFY_PARAMETERS.get(param, {"label": param, "unit": "", "category": "continuous"})
         return {
             "station": station_info,
-            "parameter": ms.METPLUS_PARAM,
-            "meta": ms.METPLUS_PARAM_META,
+            "parameter": param,
+            "meta": meta,
             "series_mode": "by_init",
             "months": months,
             "obs": payload.get("obs") or [],
             "inits": inits,
             "method": "metplus_point",
             "source": "metplus-pointstat-mpr",
-            "note": "PointStat MPR: InaNWP precip 3 jam vs GSMAP di lokasi stasiun (seluruh lead H+3…H+72 per init).",
+            "note": (
+                f"PointStat MPR: InaNWP vs Soft/Sinoptik BMKG — parameter {meta.get('label', param)} "
+                "(seluruh lead H+3…H+72 per init)."
+            ),
         }
 
     from backend.services.artifacts import (

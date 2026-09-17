@@ -120,14 +120,37 @@ def match_run(root: Path, sub: str, lead: int, init: str | None):
     return None
 
 
-def point_from_cnt_cts(lead, meta, recs, extra=None):
-    cnt = next((r for r in recs if r["line_type"] == "CNT"), {})
-    cts01 = next((r for r in recs if r["line_type"] == "CTS" and r.get("fcst_thresh") == ">0.1"), {})
-    cts10 = next((r for r in recs if r["line_type"] == "CTS" and r.get("fcst_thresh") == ">1.0"), {})
+def _fcst_var(rec) -> str | None:
+    """MET STAT column 9 (0-based) is FCST_VAR."""
+    parts = rec.get("raw_parts") or []
+    if len(parts) > 9:
+        return parts[9]
+    return None
+
+
+def point_from_cnt_cts(lead, meta, recs, extra=None, parameter: str | None = None):
+    subset = recs
+    if parameter:
+        subset = [r for r in recs if _fcst_var(r) == parameter]
+        if not subset:
+            # legacy single-field STAT used name "precip"
+            if parameter in ("rainfall_last_mm", "precip_3h"):
+                subset = [r for r in recs if _fcst_var(r) in ("precip", "rainfall_last_mm", None)]
+            if not subset:
+                return None
+    cnt = next((r for r in subset if r["line_type"] == "CNT"), {})
+    if not cnt and parameter:
+        return None
+    cts01 = next((r for r in subset if r["line_type"] == "CTS" and r.get("fcst_thresh") == ">0.1"), {})
+    cts10 = next((r for r in subset if r["line_type"] == "CTS" and r.get("fcst_thresh") == ">1.0"), {})
+    param = parameter or _fcst_var(cnt) or meta.get("obs_field") or "precip_3h"
+    if param == "precip":
+        param = "rainfall_last_mm"
     row = {
         "lead_hours": lead,
         "valid": meta.get("valid") or meta.get("valid_yyyymmddhh"),
         "init": meta.get("init"),
+        "parameter": param,
         "rmse": cnt.get("rmse"),
         "me": cnt.get("me"),
         "mae": cnt.get("mae"),
@@ -260,10 +283,27 @@ def export_method(root: Path, method: str, sub: str, init, max_lead, step, prefe
                 "nbrhd_width": chosen.get("nbrhd_width") if chosen else 5,
                 "score": fss,
             })
+        elif method == "metplus_point":
+            # Multi-param PointStat: one series row per (lead, FCST_VAR)
+            params_meta = meta.get("parameters") or []
+            vars_in_stat = sorted({
+                _fcst_var(r) for r in recs
+                if r["line_type"] == "CNT" and _fcst_var(r)
+            })
+            want = params_meta or vars_in_stat or ["rainfall_last_mm"]
+            # always include STAT vars even if meta stale
+            for v in vars_in_stat:
+                if v not in want:
+                    want.append(v)
+            for param in want:
+                row = point_from_cnt_cts(lead, meta, recs, parameter=param)
+                if row:
+                    points.append(row)
         else:
             points.append(point_from_cnt_cts(lead, meta, recs))
 
-    points.sort(key=lambda p: p["lead_hours"])
+    points.sort(key=lambda p: (p["lead_hours"], p.get("parameter") or ""))
+    params_seen = sorted({p.get("parameter") for p in points if p.get("parameter")})
     series = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "init": init or (points[0]["init"] if points else None),
@@ -272,6 +312,7 @@ def export_method(root: Path, method: str, sub: str, init, max_lead, step, prefe
         "accum_hours": step,
         "max_lead_hours": max_lead,
         "n_points": len(points),
+        "parameters": params_seen,
         "points": points,
     }
     return series
@@ -296,6 +337,13 @@ def write_series(dash: Path, series: dict, stem: str):
             lines.append(
                 f"{p['lead_hours']},{p.get('valid')},{p.get('total_interest')},"
                 f"{p.get('n_fcst_objects')},{p.get('n_obs_objects')},{p.get('n_matched')}"
+            )
+    elif series.get("method") == "metplus_point":
+        lines = ["lead_hours,valid,parameter,rmse,me,mae,csi_0.1,ets_0.1,pod_0.1,far_0.1,fbias_0.1"]
+        for p in pts:
+            lines.append(
+                f"{p['lead_hours']},{p.get('valid')},{p.get('parameter')},{p.get('rmse')},{p.get('me')},{p.get('mae')},"
+                f"{p.get('csi_0.1')},{p.get('ets_0.1')},{p.get('pod_0.1')},{p.get('far_0.1')},{p.get('fbias_0.1')}"
             )
     else:
         lines = ["lead_hours,valid,rmse,me,mae,csi_0.1,ets_0.1,pod_0.1,far_0.1,fbias_0.1"]

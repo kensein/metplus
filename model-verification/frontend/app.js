@@ -143,7 +143,7 @@ function updateSessionBadge() {
     if (sub) sub.textContent = 'METplus · verifikator GSMAP | Pusat Standardisasi Instrumen MKG';
   } else if (currentEngine === 'metplus' && currentVerifier === 'stations') {
     badge.textContent = 'METplus · Stasiun BMKG · PointStat';
-    if (hint) hint.textContent = 'Verifikator stasiun BMKG: PointStat vs Soft/Sinoptik (sama obs HARP), bukan GSMaP sample.';
+    if (hint) hint.textContent = 'PointStat Soft multi-param (suhu/RH/QFF/angin/hujan) — sama sumber obs HARP.';
     if (sub) sub.textContent = 'METplus · verifikator stasiun BMKG | Pusat Standardisasi Instrumen MKG';
   } else {
     badge.textContent = '—';
@@ -558,13 +558,13 @@ async function loadMethodology() {
       },
       metplus_point: {
         title: 'METplus — PointStat (stasiun BMKG Soft)',
-        body: `<p>PointStat membandingkan field grid InaNWP dengan <strong>observasi Soft/Sinoptik BMKG</strong> di seluruh stasiun (katalog WMO) — <em>sumber obs sama dengan HARP</em>, bukan GSMaP yang di-sample di titik stasiun.</p>
-      <p>Parameter v1: curah hujan model 3 jam (<code>RAINNC+RAINC+RAINSH</code>) vs Soft <code>rainfall_last_mm</code> (fallback 6h/24h bila last kosong).</p>
+        body: `<p>PointStat membandingkan field surface InaNWP dengan <strong>observasi Soft/Sinoptik BMKG</strong> di seluruh stasiun (katalog WMO) — <em>sumber obs sama dengan HARP</em>, bukan GSMaP yang di-sample di titik stasiun.</p>
+      <p>Parameter selaras HARP Soft yang tersedia di wrfout: suhu 2m, titik embun, RH, QFF/QFE, angin (kecepatan &amp; arah), dan curah hujan terakhir (≈3 jam). Tutupan awan / Tmax / Tmin belum ada di wrfout ini.</p>
       <ol>
-        <li>Export Soft/Sinoptik (bmkgsatu) → sinoptik_*.json</li>
-        <li>prepare_point_obs_soft.py → ASCII met_point</li>
-        <li>ascii2nc + point_stat vs InaNWP precip</li>
-        <li>export → series_point.json</li>
+        <li>Export Soft/Sinoptik → sinoptik_*.json</li>
+        <li>prepare_point_fcst_surface.py + prepare_point_obs_soft.py (multi-param)</li>
+        <li>ascii2nc + point_stat</li>
+        <li>export → series_point.json (per parameter)</li>
       </ol>`,
       },
       metplus_fss: {
@@ -807,8 +807,11 @@ function bindEvents() {
 function scoresQuery(extra = '') {
   const init = selectedInitTime();
   let param = document.getElementById('parameter').value;
-  if (isMetplusMethod() && param && !['precip_3h', 'precip', 'rainfall_6h_rrr', 'rainfall_last_mm'].includes(param)) {
-    param = 'precip_3h';
+  // GridStat/FSS/MODE: hanya precip_3h. PointStat Soft: parameter HARP (jangan coerce).
+  if (isMetplusMethod() && selectedMethod() !== 'metplus_point') {
+    if (param && !['precip_3h', 'precip', 'rainfall_6h_rrr', 'rainfall_last_mm'].includes(param)) {
+      param = 'precip_3h';
+    }
   }
   const base = methodQ(`models=${modelsQuery()}&parameter=${param}${init ? `&init_time=${encodeURIComponent(init)}` : ''}`);
   return extra ? `${base}${extra.startsWith('&') ? extra : `&${extra}`}` : base;
